@@ -1,0 +1,60 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // Default deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Connection test document
+    match /test/{docId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // Roof Inspection & Tile Installation Daily Reports
+    match /roof_reports/{reportId} {
+      allow read: if true;
+      allow create, update: if isValidId(reportId)
+        && request.resource.data.id is string
+        && request.resource.data.dataPreenchimento is string
+        && request.resource.data.responsavel is string
+        && request.resource.data.predio is string;
+      allow delete: if false;
+    }
+
+    // Operational Calendar Tasks & Site Events
+    match /calendar_tasks/{taskId} {
+      allow read: if true;
+      allow create, update: if isValidId(taskId)
+        && request.resource.data.id is string
+        && request.resource.data.title is string
+        && request.resource.data.date is string;
+      allow delete: if isValidId(taskId);
+    }
+
+    // AI Actions & Contingency Approvals
+    match /ai_actions/{actionId} {
+      allow read: if true;
+      allow create, update: if isValidId(actionId)
+        && request.resource.data.id is string
+        && request.resource.data.title is string;
+      allow delete: if false;
+    }
+
+    // Automated & Manual WhatsApp Reminders (SVA Engenharia 08h30 Daily Reminder)
+    match /whatsapp_reminders/{reminderId} {
+      allow read: if true;
+      allow create, update: if isValidId(reminderId)
+        && request.resource.data.id is string
+        && request.resource.data.targetPhone is string
+        && request.resource.data.status is string;
+      allow delete: if isValidId(reminderId);
+    }
+  }
+}

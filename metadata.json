@@ -1,0 +1,6 @@
+{
+  "name": "SANY Turnkey - Gestão de Obras & IA",
+  "description": "Sistema de gestão de cobertura Savoy Campinas com controle de telhas e formulário, calendário de obras com dias de prazo em verde e chuvas, tabela de campo com histórico diário, linha de vida instalada no dia e disparos automáticos via WhatsApp 55 12 97408-0523 para SVA Engenharia às 08h30 e pós-preenchimento.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
