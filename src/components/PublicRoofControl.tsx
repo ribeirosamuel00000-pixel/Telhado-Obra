@@ -10,6 +10,11 @@ import {
   CartesianGrid,
   Tooltip,
   Legend,
+  AreaChart,
+  Area,
+  LineChart,
+  Line,
+  ComposedChart,
 } from 'recharts';
 import {
   Building2,
@@ -35,6 +40,15 @@ import {
   Copy,
   ExternalLink,
   MessageSquare,
+  TrendingUp,
+  BarChart3,
+  Sliders,
+  CalendarDays,
+  Check,
+  Zap,
+  Maximize2,
+  Activity,
+  Sparkles,
 } from 'lucide-react';
 
 interface PublicRoofControlProps {
@@ -52,6 +66,8 @@ export function PublicRoofControl({
   const [submitting, setSubmitting] = useState(false);
   const [successToast, setSuccessToast] = useState<string | null>(null);
   const [activeSubTab, setActiveSubTab] = useState<'form' | 'chart' | 'history'>('chart');
+  const [chartMode, setChartMode] = useState<'composed' | 'stacked' | 'grouped' | 'cumulative'>('composed');
+  const [chartRange, setChartRange] = useState<'all' | 'last14' | 'last7' | 'setembro' | 'agosto'>('all');
   const [searchFilter, setSearchFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('todos');
   const [expandedReportId, setExpandedReportId] = useState<number | null>(null);
@@ -207,26 +223,77 @@ export function PublicRoofControl({
     }
   };
 
-  // Prepare Chart Data (sorted by date ascending)
-  const chartData = [...reports]
-    .sort(
-      (a, b) =>
-        new Date(a.dataPreenchimento).getTime() -
-        new Date(b.dataPreenchimento).getTime()
-    )
-    .map((r) => {
-      const parts = r.dataPreenchimento.split('-');
-      const formattedDate = parts.length === 3 ? `${parts[2]}/${parts[1]}` : r.dataPreenchimento;
-      return {
-        data: formattedDate,
-        dataFull: r.dataPreenchimento,
-        translucidas: Number(r.qtdTranslúcidas) || 0,
-        fibrocimento: Number(r.qtdFibrocimento) || 0,
-        totalDia: (Number(r.qtdTranslúcidas) || 0) + (Number(r.qtdFibrocimento) || 0),
-        status: r.statusGeral,
-        clima: r.condicoesClimaticas,
-      };
-    });
+  // Prepare Cumulative & Detailed Chart Data (sorted by date ascending)
+  let runTrans = 0;
+  let runFibro = 0;
+  let runTotal = 0;
+
+  const rawSorted = [...reports].sort(
+    (a, b) =>
+      new Date(a.dataPreenchimento).getTime() -
+      new Date(b.dataPreenchimento).getTime()
+  );
+
+  const fullChartData = rawSorted.map((r) => {
+    const parts = r.dataPreenchimento.split('-');
+    const formattedDate = parts.length === 3 ? `${parts[2]}/${parts[1]}` : r.dataPreenchimento;
+    const trans = Number(r.qtdTranslúcidas) || 0;
+    const fibro = Number(r.qtdFibrocimento) || 0;
+    const totalDia = trans + fibro;
+    runTrans += trans;
+    runFibro += fibro;
+    runTotal += totalDia;
+
+    const chuvaMm = Number(r.nivelChuvaMm) || 0;
+    const isRainGained = Boolean(r.ganhouDiaAdicional || r.chuvaMaior5mm || chuvaMm > 5);
+
+    // Format week day name
+    let diaSemana = '';
+    try {
+      const d = new Date(`${r.dataPreenchimento}T12:00:00`);
+      const nomes = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+      diaSemana = nomes[d.getDay()];
+    } catch {
+      diaSemana = '';
+    }
+
+    return {
+      data: formattedDate,
+      dataFull: r.dataPreenchimento,
+      diaSemana,
+      labelComDia: diaSemana ? `${formattedDate} (${diaSemana})` : formattedDate,
+      translucidas: trans,
+      fibrocimento: fibro,
+      totalDia,
+      cumTranslucidas: runTrans,
+      cumFibrocimento: runFibro,
+      cumTotal: runTotal,
+      status: r.statusGeral,
+      clima: r.condicoesClimaticas,
+      nivelChuvaMm: chuvaMm,
+      ganhouDiaAdicional: isRainGained,
+      linhaVida: Number(r.metragemLinhaVida) || 0,
+      calhas: Number(r.metragemCalhas) || 0,
+      responsavel: r.responsavel,
+    };
+  });
+
+  const chartData = fullChartData.filter((item, idx, arr) => {
+    if (chartRange === 'last7') return idx >= arr.length - 7;
+    if (chartRange === 'last14') return idx >= arr.length - 14;
+    if (chartRange === 'setembro') return item.dataFull.includes('-09-');
+    if (chartRange === 'agosto') return item.dataFull.includes('-08-');
+    return true;
+  });
+
+  // KPI calculations for chart overview
+  const totalTelhasRange = chartData.reduce((acc, c) => acc + c.totalDia, 0);
+  const totalTransRange = chartData.reduce((acc, c) => acc + c.translucidas, 0);
+  const totalFibroRange = chartData.reduce((acc, c) => acc + c.fibrocimento, 0);
+  const daysWithProduction = chartData.filter((c) => c.totalDia > 0).length;
+  const avgProductionDay = daysWithProduction > 0 ? (totalTelhasRange / daysWithProduction).toFixed(1) : '0';
+  const maxDayItem = chartData.reduce((max, c) => (c.totalDia > max.totalDia ? c : max), { totalDia: 0, data: '-', dataFull: '-' } as any);
+  const rainDaysCountRange = chartData.filter((c) => c.ganhouDiaAdicional).length;
 
   // Filtered reports for history tab
   const filteredReports = reports.filter((r) => {
@@ -242,6 +309,77 @@ export function PublicRoofControl({
 
     return matchesSearch && matchesStatus;
   });
+
+  const CustomChartTooltip = ({ active, payload }: any) => {
+    if (active && payload && payload.length) {
+      const d = payload[0].payload;
+      return (
+        <div className="bg-slate-900/95 backdrop-blur-md text-white p-3.5 rounded-2xl shadow-xl border border-slate-700/80 text-xs min-w-[240px] space-y-2">
+          <div className="flex items-center justify-between border-b border-slate-700/80 pb-2">
+            <div>
+              <p className="font-extrabold text-sm text-white">
+                {d.dataFull} ({d.diaSemana})
+              </p>
+              <p className="text-[10px] text-slate-400">
+                Responsável: {d.responsavel || 'SVA Engenharia'}
+              </p>
+            </div>
+            {d.ganhouDiaAdicional && (
+              <span className="px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-300 border border-blue-400/40 text-[10px] font-bold">
+                🌧️ +1 Dia Prazo
+              </span>
+            )}
+          </div>
+
+          <div className="space-y-1.5 pt-0.5">
+            <div className="flex items-center justify-between">
+              <span className="flex items-center gap-1.5 text-slate-300">
+                <span className="w-2.5 h-2.5 rounded-xs bg-[#d71920]" />
+                Translúcidas no dia:
+              </span>
+              <span className="font-bold text-red-400">+{d.translucidas} un</span>
+            </div>
+
+            <div className="flex items-center justify-between">
+              <span className="flex items-center gap-1.5 text-slate-300">
+                <span className="w-2.5 h-2.5 rounded-xs bg-[#64748b]" />
+                Fibrocimento no dia:
+              </span>
+              <span className="font-bold text-slate-200">+{d.fibrocimento} un</span>
+            </div>
+
+            <div className="flex items-center justify-between pt-1 border-t border-slate-800">
+              <span className="font-bold text-slate-200">Total Instalado no Dia:</span>
+              <span className="font-black text-amber-400 text-sm">{d.totalDia} telhas</span>
+            </div>
+
+            <div className="flex items-center justify-between pt-1 border-t border-slate-800">
+              <span className="flex items-center gap-1.5 text-emerald-400 font-semibold">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
+                Acumulado Geral:
+              </span>
+              <span className="font-black text-emerald-400">{d.cumTotal} telhas</span>
+            </div>
+          </div>
+
+          <div className="pt-2 border-t border-slate-800 text-[10px] text-slate-400 space-y-0.5">
+            <p>• Clima: {d.clima ? d.clima.split('(')[0] : 'Estável'}</p>
+            {d.nivelChuvaMm > 0 && (
+              <p className="text-blue-300 font-medium">
+                • Chuva registrada: {d.nivelChuvaMm} mm {d.ganhouDiaAdicional ? '(Prorrogação contratual concedida)' : ''}
+              </p>
+            )}
+            {(d.linhaVida > 0 || d.calhas > 0) && (
+              <p className="text-slate-300">
+                • Linha de Vida: {d.linhaVida}m | Calhas: {d.calhas}m
+              </p>
+            )}
+          </div>
+        </div>
+      );
+    }
+    return null;
+  };
 
   return (
     <div className="w-full bg-[#f8f9fa] text-slate-900 pb-16">
@@ -562,122 +700,427 @@ export function PublicRoofControl({
           </div>
         </div>
 
-        {/* ==================== SUB-TAB 1: GRÁFICO DE BARRAS ==================== */}
+        {/* ==================== SUB-TAB 1: GRÁFICO DE BARRAS & EVOLUÇÃO ==================== */}
         {activeSubTab === 'chart' && (
-          <div className="bg-white rounded-2xl p-6 border border-slate-200/90 shadow-xs mb-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-6">
+          <div className="bg-white rounded-2xl p-5 sm:p-6 border border-slate-200/90 shadow-xs mb-6">
+            {/* Header & Controls */}
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-5 border-b border-slate-100">
               <div>
-                <h3 className="text-base sm:text-lg font-bold text-slate-900">
-                  Número de Telhas Instaladas por Tipo (Translúcidas vs. Fibrocimento)
-                </h3>
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="p-1.5 bg-red-50 text-[#d71920] rounded-lg">
+                    <BarChart3 className="w-4 h-4" />
+                  </span>
+                  <h3 className="text-base sm:text-lg font-bold text-slate-900">
+                    Acompanhamento Gráfico da Cobertura • Prédio 4i1
+                  </h3>
+                </div>
                 <p className="text-xs text-slate-500">
-                  Acompanhamento diário das peças instaladas na cobertura do Prédio 4i1
+                  Visualização analítica de telhas translúcidas e fibrocimento instaladas pela SVA Engenharia
                 </p>
               </div>
 
-              <div className="flex flex-wrap items-center gap-3">
-                <div className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-red-50 text-[#d71920] border border-red-200">
-                  <span className="w-3 h-3 rounded-sm bg-[#d71920]" />
-                  <span>Translúcidas: {summary?.translucidasInstaladas ?? 280} un.</span>
+              {/* Chart Controls: Modes & Ranges */}
+              <div className="flex flex-wrap items-center gap-2.5">
+                {/* View Mode Toggle */}
+                <div className="flex items-center p-1 bg-slate-100 rounded-xl border border-slate-200 text-xs font-semibold">
+                  <button
+                    type="button"
+                    onClick={() => setChartMode('composed')}
+                    className={`px-2.5 py-1.5 rounded-lg transition-all cursor-pointer ${
+                      chartMode === 'composed'
+                        ? 'bg-white text-slate-900 shadow-xs font-bold'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                    title="Misto: Barras do dia com curva de acumulação"
+                  >
+                    Misto + Acumulado
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setChartMode('stacked')}
+                    className={`px-2.5 py-1.5 rounded-lg transition-all cursor-pointer ${
+                      chartMode === 'stacked'
+                        ? 'bg-white text-slate-900 shadow-xs font-bold'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                    title="Barras Empilhadas: Visualiza total do dia em uma só coluna"
+                  >
+                    Empilhado
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setChartMode('grouped')}
+                    className={`px-2.5 py-1.5 rounded-lg transition-all cursor-pointer ${
+                      chartMode === 'grouped'
+                        ? 'bg-white text-slate-900 shadow-xs font-bold'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                    title="Barras Lado a Lado: Comparativo direto"
+                  >
+                    Lado a Lado
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setChartMode('cumulative')}
+                    className={`px-2.5 py-1.5 rounded-lg transition-all cursor-pointer ${
+                      chartMode === 'cumulative'
+                        ? 'bg-white text-slate-900 shadow-xs font-bold'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                    title="Curva S de Evolução Acumulada"
+                  >
+                    Curva S (Área)
+                  </button>
                 </div>
-                <div className="flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-lg bg-slate-100 text-slate-800 border border-slate-300">
-                  <span className="w-3 h-3 rounded-sm bg-[#334155]" />
-                  <span>Fibrocimento: {summary?.fibrocimentoInstaladas ?? 97} un.</span>
+
+                {/* Range Filter */}
+                <div className="flex items-center gap-1 text-xs">
+                  <select
+                    value={chartRange}
+                    onChange={(e) => setChartRange(e.target.value as any)}
+                    className="px-2.5 py-1.5 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#d71920] cursor-pointer"
+                  >
+                    <option value="all">Todo o Período (21 dias)</option>
+                    <option value="last14">Últimos 14 Dias</option>
+                    <option value="last7">Últimos 7 Dias</option>
+                    <option value="setembro">Mês de Setembro (11 dias)</option>
+                    <option value="agosto">Mês de Agosto (10 dias)</option>
+                  </select>
                 </div>
               </div>
             </div>
 
-            {/* Recharts Bar Chart */}
-            <div className="h-80 w-full">
+            {/* Quick Metrics Bar directly above chart */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 my-4">
+              <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3">
+                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
+                  Produção no Período
+                </span>
+                <div className="mt-1 flex items-baseline gap-1.5">
+                  <span className="text-xl font-black text-slate-900">{totalTelhasRange}</span>
+                  <span className="text-xs font-medium text-slate-500">telhas instaladas</span>
+                </div>
+                <span className="text-[10px] text-slate-400 font-medium">
+                  {totalTransRange} translúcidas • {totalFibroRange} fibro
+                </span>
+              </div>
+
+              <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3">
+                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
+                  Média por Dia Ativo
+                </span>
+                <div className="mt-1 flex items-baseline gap-1.5">
+                  <span className="text-xl font-black text-slate-900">{avgProductionDay}</span>
+                  <span className="text-xs font-medium text-slate-500">telhas / dia</span>
+                </div>
+                <span className="text-[10px] text-slate-400 font-medium">
+                  Em {daysWithProduction} dias com produção
+                </span>
+              </div>
+
+              <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3">
+                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
+                  Pico de Produção Diário
+                </span>
+                <div className="mt-1 flex items-baseline gap-1.5">
+                  <span className="text-xl font-black text-[#d71920]">{maxDayItem.totalDia}</span>
+                  <span className="text-xs font-medium text-slate-500">telhas</span>
+                </div>
+                <span className="text-[10px] text-slate-400 font-medium truncate block">
+                  Em {maxDayItem.data} ({maxDayItem.diaSemana || 'Dia recorde'})
+                </span>
+              </div>
+
+              <div className="bg-blue-50/70 border border-blue-200 rounded-xl p-3">
+                <span className="text-[10px] font-bold text-blue-800 uppercase tracking-wider block">
+                  Extensões por Chuva (&gt;5mm)
+                </span>
+                <div className="mt-1 flex items-baseline gap-1.5">
+                  <span className="text-xl font-black text-blue-900">+{rainDaysCountRange}</span>
+                  <span className="text-xs font-medium text-blue-700">dias contratuais</span>
+                </div>
+                <span className="text-[10px] text-blue-600 font-medium">
+                  Regra Savoy aplicada na cobertura
+                </span>
+              </div>
+            </div>
+
+            {/* Main Interactive Chart */}
+            <div className="h-96 w-full pt-2">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart
-                  data={chartData}
-                  margin={{ top: 10, right: 20, left: 0, bottom: 20 }}
-                >
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                  <XAxis
-                    dataKey="data"
-                    tick={{ fontSize: 11, fill: '#64748b' }}
-                    interval={0}
-                    angle={-30}
-                    textAnchor="end"
-                  />
-                  <YAxis
-                    tick={{ fontSize: 11, fill: '#64748b' }}
-                    label={{
-                      value: 'Qtd. Telhas',
-                      angle: -90,
-                      position: 'insideLeft',
-                      style: { fontSize: 11, fill: '#64748b' },
-                    }}
-                  />
-                  <Tooltip
-                    content={({ active, payload, label }) => {
-                      if (active && payload && payload.length) {
-                        const dataItem = payload[0].payload;
-                        return (
-                          <div className="bg-slate-900 text-white p-3 rounded-xl shadow-lg text-xs space-y-1">
-                            <p className="font-bold border-b border-slate-700 pb-1">
-                              Data: {dataItem.dataFull}
-                            </p>
-                            <p className="text-[#f87171] font-semibold">
-                              Translúcidas: {dataItem.translucidas} peças
-                            </p>
-                            <p className="text-slate-300 font-semibold">
-                              Fibrocimento: {dataItem.fibrocimento} peças
-                            </p>
-                            <p className="text-amber-300 font-bold">
-                              Total Dia: {dataItem.totalDia} telhas
-                            </p>
-                            <p className="text-slate-400 text-[10px] pt-1">
-                              Status: {dataItem.status} • {dataItem.clima?.split('(')[0]}
-                            </p>
-                          </div>
-                        );
-                      }
-                      return null;
-                    }}
-                  />
-                  <Legend
-                    verticalAlign="top"
-                    height={36}
-                    formatter={(value) => (
-                      <span className="text-xs font-semibold text-slate-700">
-                        {value === 'translucidas'
-                          ? 'Telhas Translúcidas (UV)'
-                          : 'Telhas Fibrocimento (Sem Amianto)'}
-                      </span>
-                    )}
-                  />
-                  <Bar
-                    dataKey="translucidas"
-                    fill="#d71920"
-                    name="translucidas"
-                    radius={[4, 4, 0, 0]}
-                  />
-                  <Bar
-                    dataKey="fibrocimento"
-                    fill="#334155"
-                    name="fibrocimento"
-                    radius={[4, 4, 0, 0]}
-                  />
-                </BarChart>
+                {chartMode === 'composed' ? (
+                  <ComposedChart
+                    data={chartData}
+                    margin={{ top: 15, right: 30, left: 5, bottom: 25 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                    <XAxis
+                      dataKey="data"
+                      tick={{ fontSize: 11, fill: '#475569', fontWeight: 600 }}
+                      interval={0}
+                      angle={-35}
+                      textAnchor="end"
+                      height={45}
+                    />
+                    <YAxis
+                      yAxisId="left"
+                      tick={{ fontSize: 11, fill: '#64748b' }}
+                      label={{
+                        value: 'Telhas no Dia (un)',
+                        angle: -90,
+                        position: 'insideLeft',
+                        style: { fontSize: 11, fill: '#64748b', fontWeight: 600 },
+                      }}
+                    />
+                    <YAxis
+                      yAxisId="right"
+                      orientation="right"
+                      tick={{ fontSize: 11, fill: '#059669' }}
+                      label={{
+                        value: 'Acumulado Total (un)',
+                        angle: 90,
+                        position: 'insideRight',
+                        style: { fontSize: 11, fill: '#059669', fontWeight: 600 },
+                      }}
+                    />
+                    <Tooltip content={<CustomChartTooltip />} />
+                    <Legend
+                      verticalAlign="top"
+                      height={40}
+                      formatter={(value) => {
+                        if (value === 'translucidas') return <span className="text-xs font-bold text-slate-700">Translúcidas no Dia (un)</span>;
+                        if (value === 'fibrocimento') return <span className="text-xs font-bold text-slate-700">Fibrocimento no Dia (un)</span>;
+                        if (value === 'cumTotal') return <span className="text-xs font-bold text-emerald-700">Progresso Acumulado Geral (Curva S)</span>;
+                        return value;
+                      }}
+                    />
+                    <Bar
+                      yAxisId="left"
+                      dataKey="translucidas"
+                      name="translucidas"
+                      fill="#d71920"
+                      stackId="dia"
+                      radius={[0, 0, 0, 0]}
+                    />
+                    <Bar
+                      yAxisId="left"
+                      dataKey="fibrocimento"
+                      name="fibrocimento"
+                      fill="#334155"
+                      stackId="dia"
+                      radius={[4, 4, 0, 0]}
+                    />
+                    <Line
+                      yAxisId="right"
+                      type="monotone"
+                      dataKey="cumTotal"
+                      name="cumTotal"
+                      stroke="#059669"
+                      strokeWidth={3}
+                      dot={{ r: 3, fill: '#059669' }}
+                      activeDot={{ r: 6, fill: '#047857' }}
+                    />
+                  </ComposedChart>
+                ) : chartMode === 'stacked' ? (
+                  <BarChart
+                    data={chartData}
+                    margin={{ top: 15, right: 20, left: 5, bottom: 25 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                    <XAxis
+                      dataKey="data"
+                      tick={{ fontSize: 11, fill: '#475569', fontWeight: 600 }}
+                      interval={0}
+                      angle={-35}
+                      textAnchor="end"
+                      height={45}
+                    />
+                    <YAxis
+                      tick={{ fontSize: 11, fill: '#64748b' }}
+                      label={{
+                        value: 'Total de Telhas no Dia (un)',
+                        angle: -90,
+                        position: 'insideLeft',
+                        style: { fontSize: 11, fill: '#64748b', fontWeight: 600 },
+                      }}
+                    />
+                    <Tooltip content={<CustomChartTooltip />} />
+                    <Legend
+                      verticalAlign="top"
+                      height={40}
+                      formatter={(value) => (
+                        <span className="text-xs font-bold text-slate-700">
+                          {value === 'translucidas' ? 'Telhas Translúcidas (UV)' : 'Telhas Fibrocimento (Sem Amianto)'}
+                        </span>
+                      )}
+                    />
+                    <Bar
+                      dataKey="translucidas"
+                      name="translucidas"
+                      fill="#d71920"
+                      stackId="telhas"
+                      radius={[0, 0, 0, 0]}
+                    />
+                    <Bar
+                      dataKey="fibrocimento"
+                      name="fibrocimento"
+                      fill="#334155"
+                      stackId="telhas"
+                      radius={[4, 4, 0, 0]}
+                    />
+                  </BarChart>
+                ) : chartMode === 'grouped' ? (
+                  <BarChart
+                    data={chartData}
+                    margin={{ top: 15, right: 20, left: 5, bottom: 25 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                    <XAxis
+                      dataKey="data"
+                      tick={{ fontSize: 11, fill: '#475569', fontWeight: 600 }}
+                      interval={0}
+                      angle={-35}
+                      textAnchor="end"
+                      height={45}
+                    />
+                    <YAxis
+                      tick={{ fontSize: 11, fill: '#64748b' }}
+                      label={{
+                        value: 'Qtd. Telhas Instaladas (un)',
+                        angle: -90,
+                        position: 'insideLeft',
+                        style: { fontSize: 11, fill: '#64748b', fontWeight: 600 },
+                      }}
+                    />
+                    <Tooltip content={<CustomChartTooltip />} />
+                    <Legend
+                      verticalAlign="top"
+                      height={40}
+                      formatter={(value) => (
+                        <span className="text-xs font-bold text-slate-700">
+                          {value === 'translucidas' ? 'Telhas Translúcidas (UV)' : 'Telhas Fibrocimento (Sem Amianto)'}
+                        </span>
+                      )}
+                    />
+                    <Bar
+                      dataKey="translucidas"
+                      name="translucidas"
+                      fill="#d71920"
+                      radius={[4, 4, 0, 0]}
+                    />
+                    <Bar
+                      dataKey="fibrocimento"
+                      name="fibrocimento"
+                      fill="#334155"
+                      radius={[4, 4, 0, 0]}
+                    />
+                  </BarChart>
+                ) : (
+                  <AreaChart
+                    data={chartData}
+                    margin={{ top: 15, right: 20, left: 5, bottom: 25 }}
+                  >
+                    <defs>
+                      <linearGradient id="colorCumTotal" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#d71920" stopOpacity={0.8} />
+                        <stop offset="95%" stopColor="#d71920" stopOpacity={0.05} />
+                      </linearGradient>
+                      <linearGradient id="colorCumTrans" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#0284c7" stopOpacity={0.7} />
+                        <stop offset="95%" stopColor="#0284c7" stopOpacity={0.05} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                    <XAxis
+                      dataKey="data"
+                      tick={{ fontSize: 11, fill: '#475569', fontWeight: 600 }}
+                      interval={0}
+                      angle={-35}
+                      textAnchor="end"
+                      height={45}
+                    />
+                    <YAxis
+                      tick={{ fontSize: 11, fill: '#64748b' }}
+                      label={{
+                        value: 'Evolução Acumulada (un)',
+                        angle: -90,
+                        position: 'insideLeft',
+                        style: { fontSize: 11, fill: '#64748b', fontWeight: 600 },
+                      }}
+                    />
+                    <Tooltip content={<CustomChartTooltip />} />
+                    <Legend
+                      verticalAlign="top"
+                      height={40}
+                      formatter={(value) => (
+                        <span className="text-xs font-bold text-slate-700">
+                          {value === 'cumTotal'
+                            ? 'Total Acumulado de Telhas'
+                            : value === 'cumTranslucidas'
+                            ? 'Translúcidas Acumuladas'
+                            : 'Fibrocimento Acumulado'}
+                        </span>
+                      )}
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="cumTotal"
+                      name="cumTotal"
+                      stroke="#d71920"
+                      strokeWidth={3}
+                      fillOpacity={1}
+                      fill="url(#colorCumTotal)"
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="cumTranslucidas"
+                      name="cumTranslucidas"
+                      stroke="#0284c7"
+                      strokeWidth={2}
+                      fillOpacity={1}
+                      fill="url(#colorCumTrans)"
+                    />
+                  </AreaChart>
+                )}
               </ResponsiveContainer>
             </div>
 
+            {/* Weather & Rain Days Indicator Strip */}
+            <div className="mt-4 p-3 rounded-xl bg-slate-50 border border-slate-200/80 flex flex-wrap items-center justify-between gap-3 text-xs">
+              <div className="flex items-center gap-2">
+                <CloudRain className="w-4 h-4 text-blue-600 shrink-0" />
+                <span className="font-semibold text-slate-700">
+                  Dias com Chuva &gt; 5mm (Prorrogação Savoy de +1 dia contratual):
+                </span>
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5">
+                {chartData
+                  .filter((c) => c.ganhouDiaAdicional)
+                  .map((c) => (
+                    <span
+                      key={c.dataFull}
+                      className="px-2 py-0.5 rounded-md bg-blue-100/80 text-blue-800 font-mono text-[11px] font-bold border border-blue-200"
+                      title={`Chuva de ${c.nivelChuvaMm}mm em ${c.dataFull}`}
+                    >
+                      {c.data} ({c.nivelChuvaMm}mm)
+                    </span>
+                  ))}
+              </div>
+            </div>
+
             {/* Quick Action to fill report */}
-            <div className="mt-6 pt-4 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-3">
+            <div className="mt-5 pt-4 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-3">
               <div className="flex items-center gap-2 text-xs text-slate-600">
                 <Info className="w-4 h-4 text-slate-400" />
                 <span>
-                  Os dados do gráfico são alimentados automaticamente a cada novo formulário preenchido pela equipe de campo.
+                  O gráfico reflete em tempo real os 21 apontamentos limpos e estruturados da base oficial do Prédio 4i1.
                 </span>
               </div>
               <button
                 onClick={() => setActiveSubTab('form')}
                 className="flex items-center gap-1.5 px-4 py-2 bg-[#d71920] hover:bg-[#b5141a] text-white text-xs font-bold rounded-xl transition-all cursor-pointer shadow-xs"
               >
-                <span>Fazer Novo Apontamento Hoje</span>
+                <span>Novo Apontamento de Campo</span>
                 <ArrowRight className="w-3.5 h-3.5" />
               </button>
             </div>

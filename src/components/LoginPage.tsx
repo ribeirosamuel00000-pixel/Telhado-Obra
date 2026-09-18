@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
-import { ShieldCheck, HardHat, Lock, AlertCircle, ArrowRight, UserCheck, Key } from 'lucide-react';
+import { ShieldCheck, HardHat, Lock, AlertCircle, ArrowRight, UserCheck, Key, Zap } from 'lucide-react';
 
 interface LoginPageProps {
   onBackToPublic?: () => void;
@@ -9,19 +9,27 @@ interface LoginPageProps {
 export const LoginPage: React.FC<LoginPageProps> = ({ onBackToPublic }) => {
   const { login, isLoading } = useAuth();
   const [email, setEmail] = useState('souzas@sanygroup.com');
-  const [password, setPassword] = useState('');
+  const [password, setPassword] = useState('72npR#Sn');
   const [error, setError] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     try {
-      await login(email, password);
-      // Immediately wipe password from state - do not save or persist
+      await login(email, password || '72npR#Sn');
       setPassword('');
     } catch (err: any) {
       setError(err.message || 'Falha ao autenticar. Verifique suas credenciais de desenvolvedor.');
       setPassword('');
+    }
+  };
+
+  const handleInstantLogin = async () => {
+    setError(null);
+    try {
+      await login('souzas@sanygroup.com', '72npR#Sn');
+    } catch (err: any) {
+      setError(err.message || 'Falha ao autenticar.');
     }
   };
 
@@ -133,6 +141,16 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onBackToPublic }) => {
               )}
             </button>
 
+            <button
+              type="button"
+              onClick={handleInstantLogin}
+              disabled={isLoading}
+              className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl text-xs font-bold text-slate-800 bg-slate-100 hover:bg-slate-200 border border-slate-300 transition-all cursor-pointer shadow-xs active:scale-[0.98]"
+            >
+              <Zap className="w-4 h-4 text-amber-500 fill-amber-500" />
+              <span>Acesso Imediato 1-Clique (Vercel & Offline)</span>
+            </button>
+
             {onBackToPublic && (
               <button
                 type="button"
@@ -152,12 +170,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onBackToPublic }) => {
             <div className="space-y-2">
               <button
                 type="button"
-                onClick={() => handleQuickLogin('souzas@sanygroup.com', '72npR#Sn')}
-                className={`w-full text-left p-2.5 rounded-xl border text-xs transition-all flex items-center justify-between cursor-pointer ${
-                  email === 'souzas@sanygroup.com'
-                    ? 'border-[#d71920] bg-red-50/50 shadow-sm'
-                    : 'border-slate-200 hover:bg-slate-50'
-                }`}
+                onClick={handleInstantLogin}
+                className={`w-full text-left p-2.5 rounded-xl border text-xs transition-all flex items-center justify-between cursor-pointer border-[#d71920] bg-red-50/50 shadow-sm hover:bg-red-100/50`}
               >
                 <div className="flex items-center gap-2.5 min-w-0">
                   <div className="w-7 h-7 rounded-full bg-[#d71920] text-white flex items-center justify-center font-bold text-[11px] shrink-0">
@@ -165,11 +179,11 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onBackToPublic }) => {
                   </div>
                   <div className="truncate">
                     <p className="font-semibold text-slate-900 truncate">Samuel Ribeiro de Souza</p>
-                    <p className="text-[10px] text-slate-500 font-mono">souzas@sanygroup.com • Desenvolvedor</p>
+                    <p className="text-[10px] text-slate-500 font-mono">souzas@sanygroup.com • Clique p/ entrar direto</p>
                   </div>
                 </div>
                 <span className="text-[10px] font-bold text-[#d71920] bg-red-100/80 px-2 py-0.5 rounded-full shrink-0">
-                  Desenvolvedor
+                  Entrar Direto ⚡
                 </span>
               </button>
             </div>
