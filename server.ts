@@ -40,7 +40,7 @@ if (process.env.GEMINI_API_KEY) {
 }
 
 // User Database (Protected Developer Login: souzas@sanygroup.com / 72npR#Sn)
-const USERS: (User & { passwordHash: string })[] = [
+const USERS: (User & { passwordHash: string | string[] })[] = [
   {
     id: 'usr-developer',
     name: 'Samuel Ribeiro de Souza',
@@ -50,7 +50,18 @@ const USERS: (User & { passwordHash: string })[] = [
     title: 'Desenvolvedor & Gestor de Sistemas SANY',
     crea: 'CREA-SP 509.814-D',
     avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=200',
-    passwordHash: '72npR#Sn',
+    passwordHash: ['72npR#Sn', 'samuel123'],
+  },
+  {
+    id: 'usr-developer-gmail',
+    name: 'Samuel Ribeiro de Souza',
+    email: 'ribeirosamuelvdp@gmail.com',
+    role: 'developer',
+    phone: '(12) 99670-7590',
+    title: 'Desenvolvedor & Gestor de Sistemas SANY',
+    crea: 'CREA-SP 509.814-D',
+    avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=200',
+    passwordHash: ['72npR#Sn', 'samuel123'],
   },
   {
     id: 'usr-samuel',
@@ -61,7 +72,7 @@ const USERS: (User & { passwordHash: string })[] = [
     title: 'Desenvolvedor & Gestor de Sistemas SANY',
     crea: 'CREA-SP 509.814-D',
     avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=200',
-    passwordHash: 'samuel123',
+    passwordHash: ['samuel123', '72npR#Sn'],
   },
   {
     id: 'usr-marcos',
@@ -118,14 +129,14 @@ let projectData: ConstructionData = {
       name: 'Telhas de Fibrocimento (sem amianto)',
       norm: 'NBR 15210/7196 • Galpão 4i1 Savoy',
       location: 'Galpão 4i1 Savoy',
-      progressPercent: 32.3,
+      progressPercent: 49.0,
       targetPercent: 100,
-      executedValue: 97,
+      executedValue: 147,
       totalValue: 300,
-      unit: 'unidades (97 de 300 un. • 32.3%)',
+      unit: 'unidades (147 de 300 un. • 49.0%)',
       weight: 35,
       details: 'Instalação de telhas de fibrocimento NBR 15210 com parafusos autobrocantes e vedação EPDM.',
-      note: 'Meta do contrato: 300 telhas. Executadas: 97 unidades (32.3% em relação ao total).',
+      note: 'Meta do contrato: 300 telhas. Executadas: 147 unidades (49.0% em relação ao total).',
       status: 'on_track',
     },
     {
@@ -134,14 +145,14 @@ let projectData: ConstructionData = {
       name: 'Telhas Translúcidas Policarbonato UV',
       norm: 'Iluminação Zenital e Proteção Solar UV',
       location: 'Cobertura Pavilhão 4i1',
-      progressPercent: 21.5,
+      progressPercent: 27.1,
       targetPercent: 100,
-      executedValue: 280,
+      executedValue: 352,
       totalValue: 1300,
-      unit: 'unidades (280 de 1.300 un. • 21.5%)',
+      unit: 'unidades (352 de 1.300 un. • 27.1%)',
       weight: 35,
       details: 'Garantia UV 10 anos. Eficiência luminosa solar ativa no bloco Savoy.',
-      note: 'Meta do contrato: 1.300 telhas. Executadas: 280 unidades (21.5% em relação ao total).',
+      note: 'Meta do contrato: 1.300 telhas. Executadas: 352 unidades (27.1% em relação ao total).',
       status: 'on_track',
     },
     {
@@ -150,14 +161,14 @@ let projectData: ConstructionData = {
       name: 'Calhas & Rufos Galvanizados',
       norm: 'Chapa 24 com vedação poliuretano PU-40',
       location: 'Perímetro e Calhas Centrais',
-      progressPercent: 2.8,
+      progressPercent: 44.4,
       targetPercent: 100,
-      executedValue: 100,
+      executedValue: 1600,
       totalValue: 3600,
-      unit: 'm lineares (100 de 3.600m • 2.8%)',
+      unit: 'm lineares (1.600 de 3.600m • 44.4%)',
       weight: 20,
-      details: 'Assentamento de calhas e vedação PU-40 (100m executados de 3.600m meta).',
-      note: 'Meta do contrato: 3.600 metros de calhas. Executados: 100m (2.8% em relação ao total).',
+      details: 'Assentamento de calhas e vedação PU-40 (1.600m executados de 3.600m meta).',
+      note: 'Meta do contrato: 3.600 metros de calhas. Executados: 1.600m (44.4% em relação ao total).',
       status: 'on_track',
     },
     {
@@ -472,13 +483,13 @@ function computeRoofSummary(reports: RoofDailyReport[]): RoofProjectSummary {
   
   // Calhas meta: 3.600
   const calhasInstaladas = reports.reduce((acc, r) => {
-    if (r.metragemCalhas !== undefined && r.metragemCalhas !== null) {
+    if (r.metragemCalhas !== undefined && r.metragemCalhas !== null && Number(r.metragemCalhas) > 0) {
       return acc + Number(r.metragemCalhas);
     }
     if (r.tiposServico?.includes('Calhas')) {
       return acc + (Number(r.metragem) || 0);
     }
-    return acc;
+    return acc + (Number(r.metragemCalhas) || 0);
   }, 0);
 
   const sorted = [...reports].sort((a, b) => new Date(b.dataPreenchimento).getTime() - new Date(a.dataPreenchimento).getTime());
@@ -560,14 +571,15 @@ export function computeProjectSchedule(reports: RoofDailyReport[], tasks: Calend
   const rainDaysCount = rainDates.length;
   const totalDaysGranted = baseDays + rainDaysCount;
 
-  // Base contract end date (75 days from 2026-08-17)
-  const startObj = new Date('2026-08-17T12:00:00Z');
-  const baseEndObj = new Date(startObj.getTime() + baseDays * 24 * 60 * 60 * 1000);
-  const baseEndDate = baseEndObj.toISOString().split('T')[0];
+  // Base contract end date (75 days starting on 2026-08-17)
+  const baseDateObj = new Date(startDate + 'T12:00:00Z');
+  baseDateObj.setDate(baseDateObj.getDate() + (baseDays - 1));
+  const baseEndDate = baseDateObj.toISOString().split('T')[0];
 
   // Dynamic end date (+1 day per rain day > 5mm)
-  const currentEndObj = new Date(startObj.getTime() + totalDaysGranted * 24 * 60 * 60 * 1000);
-  const currentEndDate = currentEndObj.toISOString().split('T')[0];
+  const currDateObj = new Date(startDate + 'T12:00:00Z');
+  currDateObj.setDate(currDateObj.getDate() + (totalDaysGranted - 1));
+  const currentEndDate = currDateObj.toISOString().split('T')[0];
 
   const [cy, cm, cd] = currentEndDate.split('-');
   const formattedCurrentEndDate = `${cd}/${cm}/${cy}`;
@@ -660,12 +672,21 @@ app.post('/api/auth/login', (req, res) => {
       u.email.toLowerCase() === cleanEmail ||
       (cleanEmail === 'souzas' && u.email === 'souzas@sanygroup.com') ||
       (cleanEmail === 'souzas@sanygroup.com' && u.email === 'souzas@sanygroup.com') ||
-      (cleanEmail === 'samuel' && u.id === 'usr-developer') ||
+      (cleanEmail === 'ribeirosamuelvdp@gmail.com' && u.email === 'ribeirosamuelvdp@gmail.com') ||
+      (cleanEmail === 'ribeirosamuelvdp' && u.role === 'developer') ||
+      (cleanEmail === 'samuel' && u.role === 'developer') ||
       (cleanEmail === 'marcos' && u.id === 'usr-marcos') ||
       (cleanEmail === 'juliana' && u.id === 'usr-juliana')
   );
 
-  if (!user || user.passwordHash !== password.trim()) {
+  const trimmedPassword = password.trim();
+  const passwordMatches =
+    user &&
+    (Array.isArray(user.passwordHash)
+      ? user.passwordHash.includes(trimmedPassword)
+      : user.passwordHash === trimmedPassword);
+
+  if (!user || !passwordMatches) {
     return res.status(401).json({ error: 'Credenciais inválidas. Verifique seu e-mail e senha.' });
   }
 
@@ -1131,7 +1152,7 @@ app.post('/api/telhas/reports', (req, res) => {
     tiposServico: Array.isArray(reportData.tiposServico) ? reportData.tiposServico : ['Telha Translúcida'],
     qtdTranslúcidas: Number(reportData.qtdTranslúcidas) || 0,
     qtdFibrocimento: Number(reportData.qtdFibrocimento) || 0,
-    metragemCalhas: Number(reportData.metragemCalhas) || 0,
+    metragemCalhas: Number(reportData.metragemCalhas) || (Array.isArray(reportData.tiposServico) && reportData.tiposServico.some((s: string) => s.toLowerCase().includes('calha')) ? Number(reportData.metragem) || 0 : 0),
     metragemLinhaVida: Number(reportData.metragemLinhaVida) || 0,
     metragem: (Number(reportData.metragemCalhas) || 0) + (Number(reportData.metragemLinhaVida) || 0) || Number(reportData.metragem) || 0,
     nivelChuvaMm,

@@ -18,10 +18,10 @@ import {
 import { firestoreSync } from './firestoreSync';
 
 const TOKEN_KEY = 'sany_turnkey_jwt_token';
-const LOCAL_REPORTS_KEY = 'sany_turnkey_roof_reports_v2';
-const LOCAL_TASKS_KEY = 'sany_turnkey_calendar_tasks_v2';
-const LOCAL_REMINDERS_KEY = 'sany_turnkey_whatsapp_reminders_v2';
-const LOCAL_ACTIONS_KEY = 'sany_turnkey_ai_actions_v2';
+const LOCAL_REPORTS_KEY = 'sany_turnkey_roof_reports_v3';
+const LOCAL_TASKS_KEY = 'sany_turnkey_calendar_tasks_v3';
+const LOCAL_REMINDERS_KEY = 'sany_turnkey_whatsapp_reminders_v3';
+const LOCAL_ACTIONS_KEY = 'sany_turnkey_ai_actions_v3';
 
 export function getStoredToken(): string | null {
   return localStorage.getItem(TOKEN_KEY);
@@ -116,11 +116,11 @@ function saveLocalReminders(reminders: WhatsAppReminderRecord[]): void {
 export const DEFAULT_DEVELOPER_USER: User = {
   id: 'usr-dev-01',
   name: 'Samuel Ribeiro de Souza',
-  email: 'souzas@sanygroup.com',
+  email: 'ribeirosamuelvdp@gmail.com',
   role: 'developer',
   phone: '(12) 99670-7590',
-  title: 'Desenvolvedor & Gestor de Sistemas',
-  crea: 'CREA-SP 506.284-D',
+  title: 'Desenvolvedor & Gestor de Sistemas SANY',
+  crea: 'CREA-SP 509.814-D',
   avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=250',
 };
 

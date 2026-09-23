@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { CalendarTask, ProjectScheduleInfo, RoofDailyReport } from '../types';
 import { api } from '../services/api';
+import { computeProjectSchedule } from '../data/roofData';
 import {
   Calendar as CalendarIcon,
   ChevronLeft,
@@ -22,6 +23,9 @@ import {
   Share2,
   Copy,
   MessageSquare,
+  Umbrella,
+  Info,
+  ExternalLink,
 } from 'lucide-react';
 
 export function CalendarTab() {
@@ -93,10 +97,106 @@ export function CalendarTab() {
     return map;
   }, [roofReports]);
 
+  // Reactive computed schedule (base 75 days + rain days > 5mm)
+  const computedSchedule = useMemo(() => {
+    return computeProjectSchedule(roofReports, tasks);
+  }, [roofReports, tasks]);
+
+  const activeSchedule = scheduleInfo || computedSchedule;
+
+  // Helper to extract weather and precipitation details for any date
+  const getDayRainDetail = (dateStr: string) => {
+    const rep = reportsByDate.get(dateStr);
+    const dayTasksList = tasks.filter((t) => t.date === dateStr);
+    const rainTask = dayTasksList.find((t) => t.category === 'chuva' || t.isRain || t.rained);
+
+    const repVol = rep?.nivelChuvaMm !== undefined ? Number(rep.nivelChuvaMm) : 0;
+    const taskVol = rainTask?.rainVolumeMm !== undefined ? Number(rainTask.rainVolumeMm) : 0;
+    const volumeMm = Math.max(repVol, taskVol);
+
+    const isRainOver5mm =
+      volumeMm > 5 ||
+      Boolean(rep?.chuvaMaior5mm) ||
+      Boolean(rep?.ganhouDiaAdicional) ||
+      Boolean(rainTask?.addedDayToDeadline);
+
+    const period = rep?.periodosAfetadosClima || rainTask?.rainPeriod || (isRainOver5mm ? 'Período chuvoso' : 'Sem paralisação');
+    const condition = rep?.condicoesClimaticas || (rainTask ? 'Chuva / Intempérie' : 'Estável');
+    const isParalyzed =
+      rep?.statusGeral === 'Paralisado' ||
+      Boolean(rainTask?.paralyzedWork) ||
+      condition.toLowerCase().includes('paralisad') ||
+      (rep?.descricaoExecucao?.toLowerCase().includes('não conseguimos trabalhar') ?? false);
+
+    return {
+      hasRain: volumeMm > 0 || isRainOver5mm || Boolean(rainTask),
+      isRainOver5mm,
+      volumeMm,
+      period,
+      condition,
+      isParalyzed,
+      report: rep,
+      task: rainTask,
+    };
+  };
+
+  // Active month derived from selectedDate (e.g. "2026-09")
+  const activeYearMonth = useMemo(() => {
+    const d = new Date(selectedDate + 'T12:00:00');
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    return `${y}-${m}`;
+  }, [selectedDate]);
+
+  const activeMonthName = useMemo(() => {
+    const d = new Date(selectedDate + 'T12:00:00');
+    return d.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+  }, [selectedDate]);
+
+  // Statistics of rain impact for the currently selected month
+  const monthRainStats = useMemo(() => {
+    const rainDaysMap = new Map<string, ReturnType<typeof getDayRainDetail>>();
+
+    // Scan all reports for this month
+    roofReports.forEach((r) => {
+      if (r.dataPreenchimento && r.dataPreenchimento.startsWith(activeYearMonth)) {
+        const detail = getDayRainDetail(r.dataPreenchimento);
+        if (detail.isRainOver5mm) {
+          rainDaysMap.set(r.dataPreenchimento, detail);
+        }
+      }
+    });
+
+    // Scan all calendar tasks for this month
+    tasks.forEach((t) => {
+      if (t.date && t.date.startsWith(activeYearMonth)) {
+        const detail = getDayRainDetail(t.date);
+        if (detail.isRainOver5mm) {
+          rainDaysMap.set(t.date, detail);
+        }
+      }
+    });
+
+    const rainDays = Array.from(rainDaysMap.entries())
+      .map(([date, detail]) => ({ date, ...detail }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+
+    const totalRainVolumeMm = rainDays.reduce((acc, d) => acc + d.volumeMm, 0);
+    const fullyParalyzedDays = rainDays.filter((d) => d.isParalyzed).length;
+
+    return {
+      count: rainDays.length,
+      days: rainDays,
+      totalVolumeMm: totalRainVolumeMm,
+      fullyParalyzedDays,
+      grantedExtensionDays: rainDays.length,
+    };
+  }, [roofReports, tasks, activeYearMonth, reportsByDate]);
+
   // Prazo do fornecedor de serviço em verde: do início (17/08/2026) até o prazo final estendido por chuva
   const isProviderDeadline = (dayStr: string) => {
-    const start = scheduleInfo?.contractStartDate || '2026-08-17';
-    const end = scheduleInfo?.currentEndDate || '2026-11-06';
+    const start = activeSchedule?.startDate || '2026-08-17';
+    const end = activeSchedule?.currentEndDate || '2026-11-09';
     return dayStr >= start && dayStr <= end;
   };
 
@@ -279,9 +379,9 @@ export function CalendarTab() {
               </span>
             </div>
             <p className="text-xs text-slate-300 leading-relaxed">
-              Início: <strong className="text-white">17/08/2026</strong> • Prazo Base: <strong className="text-white">75 dias corridos</strong> • 
-              Chuva &gt; 5mm registrada: <strong className="text-amber-400 font-bold">{scheduleInfo?.rainDaysCount ?? 6} dias</strong> (+{scheduleInfo?.rainDaysCount ?? 6} dias no calendário) • 
-              Término Atualizado: <strong className="text-emerald-400 text-sm font-black">{scheduleInfo?.formattedCurrentEndDate ?? '06/11/2026'}</strong>
+              Início: <strong className="text-white">{activeSchedule?.startDate ? activeSchedule.startDate.split('-').reverse().join('/') : '17/08/2026'}</strong> • Prazo Base: <strong className="text-white">{activeSchedule?.baseDays ?? 75} dias corridos</strong> • 
+              Chuva &gt; 5mm registrada: <strong className="text-amber-400 font-bold">{activeSchedule?.rainDaysCount ?? 10} dias</strong> (+{activeSchedule?.rainDaysCount ?? 10} dias no calendário) • 
+              Término Atualizado: <strong className="text-emerald-400 text-sm font-black">{activeSchedule?.formattedCurrentEndDate ?? '09/11/2026'}</strong>
             </p>
           </div>
         </div>
@@ -306,6 +406,191 @@ export function CalendarTab() {
           <MessageSquare className="w-4 h-4" />
           <span>Notificação WhatsApp (Samuel)</span>
         </button>
+      </div>
+
+      {/* ========================================================================= */}
+      {/* CARD INFORMATIVO: DIAS IMPACTADOS / PERDIDOS POR CHUVA NO MÊS ATUAL (>5MM) */}
+      {/* ========================================================================= */}
+      <div className="bg-white rounded-2xl border-2 border-blue-500/80 shadow-xs overflow-hidden transition-all">
+        {/* Faixa Superior com Título do Mês Ativo e Critério >5mm */}
+        <div className="bg-gradient-to-r from-blue-950 via-slate-900 to-indigo-950 text-white px-5 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-blue-900/60">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 rounded-xl bg-blue-500/20 text-cyan-300 border border-blue-400/30 shrink-0">
+              <CloudRain className="w-6 h-6 animate-pulse text-cyan-300" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="text-base sm:text-lg font-black tracking-tight text-white capitalize">
+                  Impacto de Chuvas no Mês • {activeMonthName}
+                </h3>
+                <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-amber-400 text-slate-950 flex items-center gap-1 shadow-xs border border-amber-300">
+                  <AlertTriangle className="w-3 h-3 text-red-700 shrink-0" />
+                  Critério Savoy: Precipitação &gt; 5mm
+                </span>
+              </div>
+              <p className="text-xs text-blue-200 mt-0.5">
+                Monitoramento de intempéries, paralisações NR-35 e prorrogações automáticas do cronograma contratual
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 self-start sm:self-auto">
+            <span className="text-[11px] font-bold px-3 py-1.5 rounded-xl bg-blue-900/80 text-blue-200 border border-blue-700/80 font-mono">
+              Total Geral da Obra: <strong className="text-white">{activeSchedule?.rainDaysCount ?? 10} dias</strong>
+            </span>
+          </div>
+        </div>
+
+        {/* 4 KPIs em Grid com Destaque para o Total de Dias Perdidos / Impactados */}
+        <div className="p-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 bg-slate-50/70 border-b border-slate-200/80">
+          {/* KPI 1: Dias Impactados / Perdidos no Mês Atual */}
+          <div className="bg-white rounded-2xl p-4.5 border-2 border-blue-400 shadow-2xs flex flex-col justify-between relative overflow-hidden">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+                <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
+                Dias Impactados no Mês
+              </span>
+              <span className="w-2.5 h-2.5 rounded-full bg-blue-600 animate-ping" />
+            </div>
+            <div className="my-2.5 flex items-baseline gap-2">
+              <span className="text-3xl sm:text-4xl font-black text-blue-700 tracking-tight">
+                {monthRainStats.count}
+              </span>
+              <span className="text-xs font-bold text-slate-600 leading-tight">
+                {monthRainStats.count === 1 ? 'dia com chuva > 5mm' : 'dias com chuva > 5mm'}
+              </span>
+            </div>
+            <div className="pt-2 border-t border-slate-100 flex items-center justify-between">
+              <span className="text-[11px] font-black text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200">
+                +{monthRainStats.grantedExtensionDays} {monthRainStats.grantedExtensionDays === 1 ? 'dia prorrogado' : 'dias prorrogados'}
+              </span>
+              <span className="text-[10px] text-slate-400 font-semibold">Savoy</span>
+            </div>
+          </div>
+
+          {/* KPI 2: Precipitação Pluviométrica Acumulada */}
+          <div className="bg-white rounded-2xl p-4.5 border border-slate-200/90 shadow-2xs flex flex-col justify-between">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+                <Droplets className="w-3.5 h-3.5 text-blue-500" />
+                Precipitação no Mês
+              </span>
+              <span className="text-xs font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-md border border-blue-200">
+                Pluviômetro
+              </span>
+            </div>
+            <div className="my-2.5 flex items-baseline gap-1.5">
+              <span className="text-3xl sm:text-4xl font-black text-slate-900 tracking-tight">
+                {monthRainStats.totalVolumeMm}
+              </span>
+              <span className="text-sm font-bold text-slate-500">mm aferidos</span>
+            </div>
+            <div className="pt-2 border-t border-slate-100 text-[11px] text-slate-500 font-medium">
+              Média: <strong>{monthRainStats.count > 0 ? (monthRainStats.totalVolumeMm / monthRainStats.count).toFixed(1) : 0} mm</strong> por dia chuvoso
+            </div>
+          </div>
+
+          {/* KPI 3: Segurança do Trabalho (NR-35) */}
+          <div className="bg-white rounded-2xl p-4.5 border border-slate-200/90 shadow-2xs flex flex-col justify-between">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+                Segurança NR-35
+              </span>
+              <span className="text-xs font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200">
+                Risco Zero
+              </span>
+            </div>
+            <div className="my-2.5 flex items-baseline gap-2">
+              <span className="text-3xl sm:text-4xl font-black text-amber-600 tracking-tight">
+                {monthRainStats.fullyParalyzedDays}
+              </span>
+              <span className="text-xs font-bold text-slate-600 leading-tight">
+                {monthRainStats.fullyParalyzedDays === 1 ? 'paralisação preventiva' : 'paralisações preventivas'}
+              </span>
+            </div>
+            <div className="pt-2 border-t border-slate-100 text-[11px] text-amber-900 font-bold">
+              Trabalho em altura suspenso
+            </div>
+          </div>
+
+          {/* KPI 4: Término Contratual Savoy Atualizado */}
+          <div className="bg-white rounded-2xl p-4.5 border-2 border-emerald-400/80 shadow-2xs flex flex-col justify-between bg-emerald-50/20">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-extrabold uppercase tracking-wider text-emerald-900 flex items-center gap-1.5">
+                <Clock className="w-3.5 h-3.5 text-emerald-600" />
+                Entrega Savoy Atualizada
+              </span>
+              <span className="text-[10px] font-black text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-md">
+                Dinâmico
+              </span>
+            </div>
+            <div className="my-2.5">
+              <span className="text-2xl sm:text-3xl font-black text-emerald-700 block">
+                {activeSchedule?.formattedCurrentEndDate || '09/11/2026'}
+              </span>
+              <span className="text-xs font-bold text-slate-600">
+                {activeSchedule?.totalDaysGranted || 85} dias corridos totais
+              </span>
+            </div>
+            <div className="pt-2 border-t border-emerald-200/80 text-[11px] font-semibold text-emerald-900">
+              75 dias base + {activeSchedule?.rainDaysCount ?? 10} dias de intempérie
+            </div>
+          </div>
+        </div>
+
+        {/* Faixa Inferior com Pills Interativas dos Dias com Alerta Climático no Mês */}
+        <div className="px-5 py-3.5 bg-white flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-extrabold text-slate-800 text-[11px] uppercase tracking-wide flex items-center gap-1.5 shrink-0">
+              <AlertTriangle className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+              Dias com Alerta Climático (&gt;5mm) em {activeMonthName}:
+            </span>
+
+            {monthRainStats.days.length === 0 ? (
+              <span className="text-slate-400 italic text-[11px] bg-slate-50 px-2.5 py-1 rounded-lg border border-slate-200">
+                Nenhum dia de chuva severa (&gt;5mm) registrado para este mês.
+              </span>
+            ) : (
+              monthRainStats.days.map((d) => {
+                const parts = d.date.split('-');
+                const formattedDay = `${parts[2]}/${parts[1]}`;
+                const isSelected = selectedDate === d.date;
+
+                return (
+                  <button
+                    key={d.date}
+                    onClick={() => {
+                      setSelectedDate(d.date);
+                      if (viewMode !== 'mes') {
+                        setViewMode('mes');
+                      }
+                    }}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 border shadow-2xs ${
+                      isSelected
+                        ? 'bg-blue-700 text-white border-blue-800 ring-2 ring-blue-400 scale-105'
+                        : 'bg-blue-50 hover:bg-blue-100 text-blue-950 border-blue-200 hover:border-blue-300'
+                    }`}
+                    title={`Ver detalhes do dia ${formattedDay}: ${d.volumeMm}mm de chuva. ${d.period}. Clique para selecionar.`}
+                  >
+                    <AlertTriangle className="w-3 h-3 text-amber-500 shrink-0" />
+                    <CloudRain className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                    <span>{formattedDay}</span>
+                    <span className="font-mono bg-blue-200/90 text-blue-950 text-[10px] px-1.5 py-0.2 rounded font-black">
+                      {d.volumeMm} mm
+                    </span>
+                    <span className="text-[10px] text-emerald-700 font-extrabold">+1d</span>
+                  </button>
+                );
+              })
+            )}
+          </div>
+
+          <div className="text-[11px] text-slate-500 font-medium shrink-0 flex items-center gap-1">
+            <Info className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+            <span>Regra Contratual Savoy: índice &gt; 5mm prorroga +1 dia corrido na entrega final.</span>
+          </div>
+        </div>
       </div>
 
       {/* 1. Header do Calendário Operacional */}
@@ -466,11 +751,12 @@ export function CalendarTab() {
           </span>
           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-100 text-emerald-950 border border-emerald-300 font-black shadow-2xs">
             <span className="w-2.5 h-2.5 rounded-full bg-emerald-600 ring-2 ring-emerald-300" />
-            🟩 Verde: Dias de Prazo do Fornecedor de Serviço (17/08 a {scheduleInfo?.formattedCurrentEndDate || '06/11/2026'})
+            🟩 Verde: Prazo Fornecedor Savoy (17/08 a {activeSchedule?.formattedCurrentEndDate || '09/11/2026'})
           </span>
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-blue-100 text-blue-950 border border-blue-300 font-black shadow-2xs">
-            <span className="w-2.5 h-2.5 rounded-full bg-blue-600 ring-2 ring-blue-300" />
-            🟦 Azul: Chuva &gt; 5mm (+1 Dia Ganho no Calendário)
+          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-blue-100 text-blue-950 border border-blue-400 font-black shadow-2xs">
+            <AlertTriangle className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+            <CloudRain className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+            🟦 Alerta Climático: Chuva &gt; 5mm (+1 Dia no Calendário)
           </span>
           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-100 text-amber-950 border border-amber-300 font-black shadow-2xs">
             <span className="w-2.5 h-2.5 rounded-full bg-amber-500 ring-2 ring-amber-300" />
@@ -479,7 +765,7 @@ export function CalendarTab() {
         </div>
 
         <div className="text-[11px] font-semibold text-slate-600 font-mono bg-white px-2.5 py-1 rounded-lg border border-slate-200">
-          Contrato: 75 dias + {scheduleInfo?.rainDaysCount ?? 6} dias chuva = <strong className="text-emerald-700">{scheduleInfo?.totalDaysGranted ?? 81} dias</strong>
+          Contrato: 75 dias + {activeSchedule?.rainDaysCount ?? 10} dias chuva = <strong className="text-emerald-700">{activeSchedule?.totalDaysGranted ?? 85} dias</strong>
         </div>
       </div>
 
@@ -497,8 +783,8 @@ export function CalendarTab() {
                   </span>
                   <span className="text-[11px] text-emerald-800 font-medium">
                     Período Contratual de Execução: <strong>17/08/2026</strong> até{' '}
-                    <strong className="text-emerald-900">{scheduleInfo?.formattedCurrentEndDate || '06/11/2026'}</strong>{' '}
-                    (75 dias base + {scheduleInfo?.rainDaysCount ?? 6} dias de compensação por chuva &gt; 5mm).
+                    <strong className="text-emerald-900">{activeSchedule?.formattedCurrentEndDate || '09/11/2026'}</strong>{' '}
+                    (75 dias base + {activeSchedule?.rainDaysCount ?? 10} dias de compensação por chuva &gt; 5mm).
                   </span>
                 </div>
               </div>
@@ -508,25 +794,41 @@ export function CalendarTab() {
             </div>
           )}
 
-          {/* Banner especial se for dia de chuva */}
-          {dayTasks.some((t) => t.category === 'chuva' || t.isRain || t.rained) && (
-            <div className="p-3.5 rounded-xl bg-blue-600 text-white flex items-center justify-between shadow-xs">
-              <div className="flex items-center gap-2.5">
-                <CloudRain className="w-5 h-5 text-white shrink-0" />
-                <div>
-                  <span className="text-xs font-black uppercase tracking-wider block">
-                    Precipitação Registrada • ITEM AZUL ATIVO
-                  </span>
-                  <span className="text-[11px] text-blue-100 font-medium">
-                    Dia com registro de chuva coletado (&gt; 5mm). +1 dia de extensão concedido ao calendário.
-                  </span>
+          {/* Banner de ALERTA CLIMÁTICO se for dia com chuva > 5mm */}
+          {(() => {
+            const dayRain = getDayRainDetail(selectedDate);
+            if (!dayRain.isRainOver5mm && !dayTasks.some((t) => t.category === 'chuva' || t.isRain || t.rained)) {
+              return null;
+            }
+
+            return (
+              <div className="p-4 rounded-2xl bg-gradient-to-r from-blue-950 via-slate-900 to-blue-900 border-2 border-blue-500 text-white shadow-md flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                <div className="flex items-start sm:items-center gap-3">
+                  <div className="p-2.5 rounded-xl bg-amber-500/20 text-amber-400 border border-amber-400/30 shrink-0">
+                    <AlertTriangle className="w-5 h-5 animate-pulse text-amber-400" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-xs sm:text-sm font-black text-amber-300 uppercase tracking-wide flex items-center gap-1.5">
+                        <CloudRain className="w-4 h-4 text-cyan-300" />
+                        Alerta Climático Registrado nesta Data: {dayRain.volumeMm > 0 ? `${dayRain.volumeMm}mm de Precipitação` : 'Chuva Aferida'}
+                      </span>
+                      <span className="text-[10px] font-black px-2 py-0.5 rounded-full bg-blue-500 text-white">
+                        Critério &gt; 5mm Atendido
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-200 mt-1 leading-relaxed">
+                      Período Afetado: <strong>{dayRain.period}</strong> • Condição: <strong>{dayRain.condition}</strong> • 
+                      {dayRain.isParalyzed ? ' Trabalho em altura suspenso conforme NR-35.' : ' Intempérie com impacto operacional.'} Prorrogação de <strong>+1 dia corrido</strong> concedida perante o contrato Savoy.
+                    </p>
+                  </div>
                 </div>
+                <span className="text-xs font-black bg-blue-600 hover:bg-blue-500 px-3 py-1.5 rounded-xl border border-blue-400 shrink-0 shadow-xs">
+                  +1 Dia Adicionado ao Prazo
+                </span>
               </div>
-              <span className="text-xs font-black px-2.5 py-1 bg-white/20 backdrop-blur-xs text-white rounded-lg">
-                🌧️ Choveu (Azul)
-              </span>
-            </div>
-          )}
+            );
+          })()}
 
           {/* Card Detalhado de Apontamento de Campo do Dia (Telhas Instaladas, Clima e Linha de Vida) */}
           {reportsByDate.has(selectedDate) && (() => {
@@ -568,13 +870,13 @@ export function CalendarTab() {
 
                   <div className="bg-white p-2.5 rounded-lg border border-emerald-200 shadow-2xs">
                     <span className="text-[10px] uppercase font-bold text-emerald-800 block">Linha de Vida</span>
-                    <span className="text-lg font-black text-emerald-700">+{rep.metragemLinhaVida || 0}m</span>
-                    <span className="text-[10px] text-emerald-600 block font-medium">Ancoragem NR-35</span>
+                    <span className="text-lg font-black text-emerald-700">{rep.metragemLinhaVida || 0}m</span>
+                    <span className="text-[10px] text-emerald-600 block font-medium">Aferição NR-35</span>
                   </div>
 
                   <div className="bg-white p-2.5 rounded-lg border border-blue-200 shadow-2xs">
                     <span className="text-[10px] uppercase font-bold text-blue-800 block">Calhas no Dia</span>
-                    <span className="text-lg font-black text-blue-900">+{rep.metragemCalhas || 0}m</span>
+                    <span className="text-lg font-black text-blue-900">+{rep.metragemCalhas || (rep.tiposServico?.some(s => s.toLowerCase().includes('calha')) ? rep.metragem : 0) || 0}m</span>
                     <span className="text-[10px] text-blue-600 block font-medium">Vedação PU-40</span>
                   </div>
                 </div>
@@ -760,7 +1062,9 @@ export function CalendarTab() {
             const dateObj = new Date(dayStr + 'T12:00:00');
             const dayTasksList = filteredTasks.filter((t) => t.date === dayStr);
             const isToday = dayStr === selectedDate;
-            const isRainDay = dayTasksList.some((t) => t.category === 'chuva' || t.isRain || t.rained);
+            const rainDetail = getDayRainDetail(dayStr);
+            const isRainOver5mm = rainDetail.isRainOver5mm;
+            const isRainDay = dayTasksList.some((t) => t.category === 'chuva' || t.isRain || t.rained) || isRainOver5mm;
             const isProvider = isProviderDeadline(dayStr);
             const dayReport = reportsByDate.get(dayStr);
 
@@ -768,7 +1072,9 @@ export function CalendarTab() {
               <div
                 key={dayStr}
                 className={`rounded-2xl p-3.5 border shadow-xs flex flex-col min-h-[320px] transition-all ${
-                  isRainDay
+                  isRainOver5mm
+                    ? 'border-2 border-blue-600 bg-gradient-to-b from-blue-50/95 via-sky-50/80 to-blue-50/95 ring-2 ring-blue-400 shadow-md'
+                    : isRainDay
                     ? 'border-blue-500 bg-blue-50/50 ring-2 ring-blue-300'
                     : isToday
                     ? 'bg-white border-[#d71920] ring-2 ring-[#d71920]/30'
@@ -783,20 +1089,28 @@ export function CalendarTab() {
                       <span className="block text-[11px] uppercase font-bold text-slate-400">
                         {dateObj.toLocaleDateString('pt-BR', { weekday: 'short' })}
                       </span>
-                      {isProvider && (
+                      {isProvider && !isRainOver5mm && (
                         <span className="text-[9px] font-black px-1.5 py-0.2 rounded-full bg-emerald-600 text-white">
                           Prazo Fornecedor
                         </span>
                       )}
-                      {isRainDay && (
+                      {isRainOver5mm ? (
+                        <span className="text-[9px] font-black px-1.5 py-0.5 rounded bg-blue-600 text-white flex items-center gap-1 shadow-2xs border border-blue-400 animate-pulse">
+                          <AlertTriangle className="w-2.5 h-2.5 text-amber-300 shrink-0" />
+                          <CloudRain className="w-2.5 h-2.5 text-cyan-200 shrink-0" />
+                          <span>{rainDetail.volumeMm}mm (+1d)</span>
+                        </span>
+                      ) : isRainDay ? (
                         <span className="text-[9px] font-black px-1.5 py-0.2 rounded-full bg-blue-600 text-white">
                           🌧️ +1d
                         </span>
-                      )}
+                      ) : null}
                     </div>
                     <span
                       className={`text-sm font-black ${
-                        isRainDay
+                        isRainOver5mm
+                          ? 'text-blue-950 font-black'
+                          : isRainDay
                           ? 'text-blue-900'
                           : isToday
                           ? 'text-[#d71920]'
@@ -811,7 +1125,9 @@ export function CalendarTab() {
 
                   <span
                     className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
-                      isRainDay
+                      isRainOver5mm
+                        ? 'bg-blue-700 text-white ring-1 ring-amber-300'
+                        : isRainDay
                         ? 'bg-blue-600 text-white'
                         : isProvider
                         ? 'bg-emerald-600 text-white'
@@ -821,6 +1137,24 @@ export function CalendarTab() {
                     {dayTasksList.length + (dayReport ? 1 : 0)}
                   </span>
                 </div>
+
+                {/* Destaque Alerta Climático Semana */}
+                {isRainOver5mm && (
+                  <div className="p-1.5 rounded-lg bg-blue-100/90 border border-blue-300 text-[10px] text-blue-950 font-bold space-y-0.5 shadow-2xs my-1">
+                    <div className="flex items-center justify-between text-blue-900">
+                      <span className="flex items-center gap-1 font-black">
+                        <AlertTriangle className="w-3 h-3 text-amber-600 shrink-0" />
+                        Alerta Climático
+                      </span>
+                      <span className="bg-blue-600 text-white px-1.5 py-0.2 rounded text-[8px] font-black">
+                        +1d Savoy
+                      </span>
+                    </div>
+                    <p className="text-[9px] text-blue-800 leading-tight">
+                      {rainDetail.volumeMm}mm • {rainDetail.period}
+                    </p>
+                  </div>
+                )}
 
                 {/* Métricas do RDO do dia (Telhas & Clima) */}
                 {dayReport && (
@@ -847,8 +1181,8 @@ export function CalendarTab() {
                     )}
 
                     {(Number(dayReport.metragemLinhaVida) || 0) > 0 && (
-                      <p className="text-[10px] font-bold text-emerald-800">
-                        🛡️ +{dayReport.metragemLinhaVida}m Linha de Vida
+                      <p className="text-[10px] font-bold text-emerald-800" title="Aferição da Linha de Vida no dia (não cumulativo)">
+                        🛡️ {dayReport.metragemLinhaVida}m Linha de Vida
                       </p>
                     )}
                   </div>
@@ -944,7 +1278,9 @@ export function CalendarTab() {
               const dateObj = new Date(dayStr + 'T12:00:00');
               const dayTasksList = filteredTasks.filter((t) => t.date === dayStr);
               const isSelected = dayStr === selectedDate;
-              const isRainDay = dayTasksList.some((t) => t.category === 'chuva' || t.isRain || t.rained);
+              const rainDetail = getDayRainDetail(dayStr);
+              const isRainOver5mm = rainDetail.isRainOver5mm;
+              const isRainDay = dayTasksList.some((t) => t.category === 'chuva' || t.isRain || t.rained) || isRainOver5mm;
               const isProvider = isProviderDeadline(dayStr);
               const dayReport = reportsByDate.get(dayStr);
 
@@ -955,9 +1291,11 @@ export function CalendarTab() {
                     setSelectedDate(dayStr);
                     setViewMode('dia');
                   }}
-                  className={`min-h-[105px] p-2 rounded-xl border text-xs cursor-pointer transition-all flex flex-col justify-between ${
-                    isRainDay
-                      ? 'border-blue-500 bg-blue-50/90 ring-2 ring-blue-400 shadow-xs'
+                  className={`min-h-[110px] p-2.5 rounded-xl border text-xs cursor-pointer transition-all flex flex-col justify-between ${
+                    isRainOver5mm
+                      ? 'border-2 border-blue-600 bg-gradient-to-b from-blue-50/95 via-sky-50/70 to-blue-50/95 ring-2 ring-blue-400/60 shadow-md hover:border-blue-700'
+                      : isRainDay
+                      ? 'border-blue-400 bg-blue-50/80 ring-1 ring-blue-300 shadow-xs'
                       : isSelected
                       ? 'border-[#d71920] bg-red-50/30 ring-2 ring-[#d71920]/40'
                       : isProvider
@@ -968,7 +1306,9 @@ export function CalendarTab() {
                   <div className="flex items-center justify-between">
                     <span
                       className={`font-black text-xs ${
-                        isRainDay
+                        isRainOver5mm
+                          ? 'text-blue-950 font-black'
+                          : isRainDay
                           ? 'text-blue-900 font-extrabold'
                           : isSelected
                           ? 'text-[#d71920]'
@@ -981,20 +1321,32 @@ export function CalendarTab() {
                     </span>
 
                     <div className="flex items-center gap-1 flex-wrap">
-                      {isProvider && (
+                      {/* ÍCONE DE ALERTA CLIMÁTICO (>5MM) */}
+                      {isRainOver5mm ? (
+                        <span
+                          className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md bg-blue-600 text-white font-black text-[9px] shadow-xs border border-blue-400 ring-1 ring-amber-300 animate-pulse"
+                          title={`Alerta Climático: Precipitação de ${rainDetail.volumeMm}mm (>5mm). +1 dia de prorrogação contratual Savoy.`}
+                        >
+                          <AlertTriangle className="w-3 h-3 text-amber-300 shrink-0" />
+                          <CloudRain className="w-3 h-3 text-cyan-200 shrink-0" />
+                          <span className="font-mono">{rainDetail.volumeMm}mm</span>
+                        </span>
+                      ) : isRainDay ? (
+                        <span className="text-[8px] font-black px-1 py-0.2 rounded bg-blue-600 text-white flex items-center gap-0.5">
+                          🌧️ +1d
+                        </span>
+                      ) : null}
+
+                      {isProvider && !isRainOver5mm && (
                         <span className="text-[8px] font-black px-1 py-0.2 rounded bg-emerald-600 text-white" title="Prazo contratual do fornecedor de serviço">
                           Prazo
                         </span>
                       )}
-                      {isRainDay && (
-                        <span className="text-[8px] font-black px-1 py-0.2 rounded bg-blue-600 text-white flex items-center gap-0.5">
-                          🌧️ +1d
-                        </span>
-                      )}
+
                       {dayTasksList.length > 0 && (
                         <span
                           className={`text-[10px] font-bold px-1 rounded-full ${
-                            isRainDay ? 'bg-blue-800 text-white' : 'bg-[#d71920] text-white'
+                            isRainOver5mm ? 'bg-blue-800 text-white' : isRainDay ? 'bg-blue-800 text-white' : 'bg-[#d71920] text-white'
                           }`}
                         >
                           {dayTasksList.length}
@@ -1005,6 +1357,27 @@ export function CalendarTab() {
 
                   {/* Informações de Telhas e Clima do RDO */}
                   <div className="space-y-1 my-1 overflow-hidden">
+                    {/* Destaque Alerta Climático no Corpo do Dia */}
+                    {isRainOver5mm && (
+                      <div
+                        className="p-1 rounded-md bg-blue-100/90 border border-blue-300 text-[9px] text-blue-950 font-bold space-y-0.5 shadow-2xs"
+                        title={`Alerta Climático: ${rainDetail.volumeMm}mm. ${rainDetail.period}. ${rainDetail.isParalyzed ? 'Trabalho em altura paralisado (NR-35).' : ''}`}
+                      >
+                        <div className="flex items-center justify-between text-blue-900">
+                          <span className="flex items-center gap-1 font-black text-[9px]">
+                            <AlertTriangle className="w-2.5 h-2.5 text-amber-600 shrink-0" />
+                            Alerta Climático
+                          </span>
+                          <span className="bg-blue-600 text-white px-1 py-0.2 rounded text-[8px] font-black">
+                            +1d
+                          </span>
+                        </div>
+                        <p className="text-[8px] text-blue-800 leading-tight">
+                          {rainDetail.volumeMm}mm • {rainDetail.isParalyzed ? 'Paralisado NR-35' : 'Chuva severa'}
+                        </p>
+                      </div>
+                    )}
+
                     {dayReport && (
                       <>
                         {((Number(dayReport.qtdTranslúcidas) || 0) + (Number(dayReport.qtdFibrocimento) || 0) > 0) && (
@@ -1016,23 +1389,25 @@ export function CalendarTab() {
                           </div>
                         )}
                         {(Number(dayReport.metragemLinhaVida) || 0) > 0 && (
-                          <div className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-950 border border-emerald-300 truncate">
-                            🛡️ +{dayReport.metragemLinhaVida}m L. Vida
+                          <div className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-950 border border-emerald-300 truncate" title="Aferição da Linha de Vida no dia (não cumulativo)">
+                            🛡️ {dayReport.metragemLinhaVida}m L. Vida
                           </div>
                         )}
-                        <div
-                          className={`text-[9px] font-semibold px-1 py-0.5 rounded truncate ${
-                            (Number(dayReport.nivelChuvaMm) > 0 || isRainDay)
-                              ? 'bg-blue-100 text-blue-950 font-black border border-blue-200'
-                              : 'bg-slate-100 text-slate-700'
-                          }`}
-                        >
-                          {Number(dayReport.nivelChuvaMm) > 0
-                            ? `🌧️ ${dayReport.nivelChuvaMm}mm ${dayReport.chuvaMaior5mm ? '(+1d)' : ''}`
-                            : isRainDay
-                            ? '🌧️ Chuva'
-                            : '☀️ ' + (dayReport.condicoesClimaticas ? dayReport.condicoesClimaticas.split('/')[0].trim() : 'Bom')}
-                        </div>
+                        {!isRainOver5mm && (
+                          <div
+                            className={`text-[9px] font-semibold px-1 py-0.5 rounded truncate ${
+                              (Number(dayReport.nivelChuvaMm) > 0 || isRainDay)
+                                ? 'bg-blue-100 text-blue-950 font-black border border-blue-200'
+                                : 'bg-slate-100 text-slate-700'
+                            }`}
+                          >
+                            {Number(dayReport.nivelChuvaMm) > 0
+                              ? `🌧️ ${dayReport.nivelChuvaMm}mm ${dayReport.chuvaMaior5mm ? '(+1d)' : ''}`
+                              : isRainDay
+                              ? '🌧️ Chuva'
+                              : '☀️ ' + (dayReport.condicoesClimaticas ? dayReport.condicoesClimaticas.split('/')[0].trim() : 'Bom')}
+                          </div>
+                        )}
                       </>
                     )}
 
@@ -1053,15 +1428,15 @@ export function CalendarTab() {
                         </div>
                       );
                     })}
-                    {dayTasksList.length > 1 && !dayReport && (
+                    {dayTasksList.length > 1 && !dayReport && !isRainOver5mm && (
                       <span className="text-[9px] text-slate-400 font-bold block">
                         +{dayTasksList.length - 1} mais
                       </span>
                     )}
                   </div>
 
-                  <span className={`text-[9px] self-end ${isRainDay ? 'text-blue-700 font-bold' : isProvider ? 'text-emerald-700 font-bold' : 'text-slate-400'}`}>
-                    {dayTasksList.some((t) => t.isCompleted) ? '✓ OK' : isProvider ? '🟢 Ativo' : isRainDay ? 'Azul' : ''}
+                  <span className={`text-[9px] self-end ${isRainOver5mm ? 'text-blue-800 font-black' : isRainDay ? 'text-blue-700 font-bold' : isProvider ? 'text-emerald-700 font-bold' : 'text-slate-400'}`}>
+                    {isRainOver5mm ? '🌧️ Alerta +1d' : dayTasksList.some((t) => t.isCompleted) ? '✓ OK' : isProvider ? '🟢 Ativo' : isRainDay ? 'Azul' : ''}
                   </span>
                 </div>
               );

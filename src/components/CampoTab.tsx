@@ -112,13 +112,24 @@ export const CampoTab: React.FC<CampoTabProps> = ({ onNavigateTab }) => {
     const totalDays = reports.length;
     const totalTrans = reports.reduce((acc, r) => acc + (Number(r.qtdTranslúcidas) || 0), 0);
     const totalFibro = reports.reduce((acc, r) => acc + (Number(r.qtdFibrocimento) || 0), 0);
-    const totalCalhas = reports.reduce((acc, r) => acc + (Number(r.metragemCalhas) || 0), 0);
+    const totalCalhas = reports.reduce((acc, r) => {
+      if (r.metragemCalhas !== undefined && r.metragemCalhas !== null && Number(r.metragemCalhas) > 0) {
+        return acc + Number(r.metragemCalhas);
+      }
+      if (r.tiposServico?.includes('Calhas')) {
+        return acc + (Number(r.metragem) || 0);
+      }
+      return acc + (Number(r.metragemCalhas) || 0);
+    }, 0);
     
-    // A linha de vida não é a soma dos dias preenchidos mas sim o total instalado no dia
-    const latestReport = reports[0];
+    // A linha de vida não se soma, reflete a última posição aferida na obra
+    const sortedReports = [...reports].sort(
+      (a, b) => new Date(b.dataPreenchimento).getTime() - new Date(a.dataPreenchimento).getTime()
+    );
+    const latestReport = sortedReports[0];
     const linhaVidaDia = latestReport && latestReport.metragemLinhaVida !== undefined
       ? Number(latestReport.metragemLinhaVida)
-      : (summary?.linhaVidaInstalada || 200);
+      : (summary?.linhaVidaInstalada || 2000);
 
     const rainDays = reports.filter(
       (r) => (Number(r.nivelChuvaMm) || 0) > 5 || r.chuvaMaior5mm
@@ -338,7 +349,7 @@ export const CampoTab: React.FC<CampoTabProps> = ({ onNavigateTab }) => {
 
         <div className="bg-white rounded-xl p-3.5 border border-slate-200 shadow-xs">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold text-slate-500 uppercase">Linha de Vida (No Dia)</span>
+            <span className="text-[11px] font-bold text-slate-500 uppercase">Linha de Vida (Última Posição)</span>
             <ShieldCheck className="w-4 h-4 text-emerald-500" />
           </div>
           <div className="mt-2 flex items-baseline gap-1">
@@ -346,7 +357,7 @@ export const CampoTab: React.FC<CampoTabProps> = ({ onNavigateTab }) => {
             <span className="text-xs text-slate-400 font-semibold">/ 2.000m meta</span>
           </div>
           <p className="text-[10px] text-emerald-600 font-bold mt-1">
-            Total instalado no dia
+            Última atualização (não se soma)
           </p>
         </div>
 

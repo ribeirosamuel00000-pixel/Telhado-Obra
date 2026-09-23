@@ -607,30 +607,30 @@ export function PublicRoofControl({
               </span>
             </div>
             <span className="text-[11px] text-slate-500 font-medium">
-              Meta: 0 de 3.600m
+              Meta: {summary?.calhasInstaladas ?? 0} de {summary?.calhasMeta ?? 3600}m
             </span>
           </div>
 
-          {/* Card 4: Linha de Vida (Total instalado no dia) */}
+          {/* Card 4: Linha de Vida (Última posição aferida, não acumula) */}
           <div className="bg-white rounded-2xl p-4.5 border border-slate-200/90 shadow-xs flex flex-col justify-between">
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold text-slate-500 uppercase tracking-wide">
-                Linha de Vida (No Dia)
+                Linha de Vida (Última Posição)
               </span>
               <span className="text-xs font-black text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
-                {summary?.linhaVidaPercent ?? 10}%
+                {summary?.linhaVidaPercent ?? 100}%
               </span>
             </div>
             <div className="my-2.5">
               <span className="text-2xl font-black text-slate-900">
-                {summary?.linhaVidaInstalada ?? 200}m
+                {summary?.linhaVidaInstalada ?? 2000}m
               </span>
               <span className="text-sm font-semibold text-slate-400">
                 {' '}/ {summary?.linhaVidaMeta ?? 2000}m
               </span>
             </div>
             <span className="text-[11px] text-emerald-700 font-bold">
-              Total instalado aferido no dia
+              Última atualização aferida (não se soma)
             </span>
           </div>
 
@@ -780,11 +780,11 @@ export function PublicRoofControl({
                     onChange={(e) => setChartRange(e.target.value as any)}
                     className="px-2.5 py-1.5 bg-slate-50 border border-slate-300 rounded-xl text-xs font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#d71920] cursor-pointer"
                   >
-                    <option value="all">Todo o Período (21 dias)</option>
+                    <option value="all">Todo o Período ({reports.length} dias)</option>
                     <option value="last14">Últimos 14 Dias</option>
                     <option value="last7">Últimos 7 Dias</option>
-                    <option value="setembro">Mês de Setembro (11 dias)</option>
-                    <option value="agosto">Mês de Agosto (10 dias)</option>
+                    <option value="setembro">Mês de Setembro ({fullChartData.filter(d => d.dataFull.includes('-09-')).length} dias)</option>
+                    <option value="agosto">Mês de Agosto ({fullChartData.filter(d => d.dataFull.includes('-08-')).length} dias)</option>
                   </select>
                 </div>
               </div>
@@ -1113,7 +1113,7 @@ export function PublicRoofControl({
               <div className="flex items-center gap-2 text-xs text-slate-600">
                 <Info className="w-4 h-4 text-slate-400" />
                 <span>
-                  O gráfico reflete em tempo real os 21 apontamentos limpos e estruturados da base oficial do Prédio 4i1.
+                  O gráfico reflete em tempo real os {reports.length} apontamentos limpos e estruturados da base oficial do Prédio 4i1.
                 </span>
               </div>
               <button
@@ -1329,7 +1329,7 @@ export function PublicRoofControl({
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#d71920]"
                   />
                   <span className="text-[11px] text-emerald-700 font-semibold">
-                    Acumulado: {summary?.linhaVidaInstalada ?? 2000}m / {summary?.linhaVidaMeta ?? 2000}m (soma com os outros dias)
+                    Última posição: {summary?.linhaVidaInstalada ?? 2000}m / {summary?.linhaVidaMeta ?? 2000}m (a linha de vida não se soma, reflete a última posição)
                   </span>
                 </div>
               </div>
@@ -1741,8 +1741,8 @@ export function PublicRoofControl({
                             </span>
                           )}
                           {(Number(rep.metragemLinhaVida) || 0) > 0 && (
-                            <span className="px-2 py-1 rounded bg-emerald-50 text-emerald-800 font-bold">
-                              +{rep.metragemLinhaVida}m Linha de Vida
+                            <span className="px-2 py-1 rounded bg-emerald-50 text-emerald-800 font-bold" title="Aferição da Linha de Vida no dia (não cumulativo)">
+                              🛡️ {rep.metragemLinhaVida}m Linha de Vida
                             </span>
                           )}
                           {(Number(rep.metragemCalhas) || 0) > 0 && (
