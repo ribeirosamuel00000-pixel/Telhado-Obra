@@ -181,13 +181,13 @@ export function CalendarTab() {
       .map(([date, detail]) => ({ date, ...detail }))
       .sort((a, b) => a.date.localeCompare(b.date));
 
-    const totalRainVolumeMm = rainDays.reduce((acc, d) => acc + d.volumeMm, 0);
+    const totalRainVolumeMm = Number(rainDays.reduce((acc, d) => acc + (Number(d.volumeMm) || 0), 0).toFixed(1));
     const fullyParalyzedDays = rainDays.filter((d) => d.isParalyzed).length;
 
     return {
       count: rainDays.length,
       days: rainDays,
-      totalVolumeMm: totalRainVolumeMm,
+      totalVolumeMm,
       fullyParalyzedDays,
       grantedExtensionDays: rainDays.length,
     };
@@ -481,12 +481,12 @@ export function CalendarTab() {
             </div>
             <div className="my-2.5 flex items-baseline gap-1.5">
               <span className="text-3xl sm:text-4xl font-black text-slate-900 tracking-tight">
-                {monthRainStats.totalVolumeMm}
+                {monthRainStats.totalVolumeMm.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}
               </span>
               <span className="text-sm font-bold text-slate-500">mm aferidos</span>
             </div>
             <div className="pt-2 border-t border-slate-100 text-[11px] text-slate-500 font-medium">
-              Média: <strong>{monthRainStats.count > 0 ? (monthRainStats.totalVolumeMm / monthRainStats.count).toFixed(1) : 0} mm</strong> por dia chuvoso
+              Média: <strong>{monthRainStats.count > 0 ? (monthRainStats.totalVolumeMm / monthRainStats.count).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : '0,0'} mm</strong> por dia chuvoso
             </div>
           </div>
 
@@ -577,7 +577,7 @@ export function CalendarTab() {
                     <CloudRain className="w-3.5 h-3.5 text-blue-600 shrink-0" />
                     <span>{formattedDay}</span>
                     <span className="font-mono bg-blue-200/90 text-blue-950 text-[10px] px-1.5 py-0.2 rounded font-black">
-                      {d.volumeMm} mm
+                      {Number(d.volumeMm).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} mm
                     </span>
                     <span className="text-[10px] text-emerald-700 font-extrabold">+1d</span>
                   </button>

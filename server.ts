@@ -182,9 +182,9 @@ let projectData: ConstructionData = {
       executedValue: 2000,
       totalValue: 2000,
       unit: 'm lineares (2.000 de 2.000m • 100%)',
-      weight: 10,
-      details: 'Laudo de ancoragem emitido para 2.000m de linha de vida (2.000 de 2.000m concluídos).',
-      note: 'Meta do contrato: 2.000 metros de linha de vida homologados.',
+      weight: 0,
+      details: 'Item de segurança NR-35 / EPC (2.000m instalados • 100%). Não pontua no avanço físico da cobertura.',
+      note: 'Meta do contrato: 2.000 metros de linha de vida homologados. Não entra no cálculo percentual do projeto.',
       status: 'completed',
     },
     {
@@ -510,12 +510,15 @@ function computeRoofSummary(reports: RoofDailyReport[]): RoofProjectSummary {
   const calhasPercent = Number(((calhasInstaladas / calhasMeta) * 100).toFixed(1));
   const linhaVidaPercent = Number(((linhaVidaInstalada / linhaVidaMeta) * 100).toFixed(1));
 
-  // Weighted progress calculation
-  const prog1 = Math.min(1, translucidasInstaladas / translucidasMeta) * 35;
+  // Linha de vida NÃO entra no cálculo de porcentagem do projeto (é EPC de segurança NR-35)
+  // O percentual do projeto é baseado nos itens definitivos da cobertura:
+  // - Telhas Translúcidas (1.300 meta) -> 45% peso
+  // - Telhas Fibrocimento (300 meta) -> 25% peso
+  // - Calhas & Rufos (3.600m meta) -> 30% peso
+  const prog1 = Math.min(1, translucidasInstaladas / translucidasMeta) * 45;
   const prog2 = Math.min(1, fibrocimentoInstaladas / fibrocimentoMeta) * 25;
-  const prog3 = Math.min(1, calhasInstaladas / calhasMeta) * 20;
-  const prog4 = Math.min(1, linhaVidaInstalada / linhaVidaMeta) * 20;
-  const progressoTotalPercent = Math.round(prog1 + prog2 + prog3 + prog4);
+  const prog3 = Math.min(1, calhasInstaladas / calhasMeta) * 30;
+  const progressoTotalPercent = Math.round(prog1 + prog2 + prog3);
 
   const scheduleInfo = computeProjectSchedule(reports, calendarTasks);
 
@@ -532,9 +535,9 @@ function computeRoofSummary(reports: RoofDailyReport[]): RoofProjectSummary {
     linhaVidaInstalada,
     linhaVidaMeta,
     linhaVidaPercent,
-    metragemInstalada: calhasInstaladas + linhaVidaInstalada,
-    metragemMeta: calhasMeta + linhaVidaMeta,
-    progressoTotalPercent: Math.max(23, progressoTotalPercent),
+    metragemInstalada: calhasInstaladas,
+    metragemMeta: calhasMeta,
+    progressoTotalPercent,
     ultimoStatus: latest?.statusGeral || 'Em andamento',
     ultimaDataPreenchimento: latest ? new Date(latest.dataPreenchimento).toLocaleDateString('pt-BR') : '14/09/2026',
     responsavelGeral: latest?.responsavel || 'Sávio Rodrigues de Souza',
@@ -591,7 +594,7 @@ export function computeProjectSchedule(reports: RoofDailyReport[], tasks: Calend
   if (latestRainDate) {
     const rep = reports.find((r) => r.dataPreenchimento === latestRainDate && (r.nivelChuvaMm || 0) > 5);
     const tsk = tasks.find((t) => t.date === latestRainDate && (t.rainVolumeMm || 0) > 5);
-    const vol = rep?.nivelChuvaMm || tsk?.rainVolumeMm || 15;
+    const vol = rep?.nivelChuvaMm || tsk?.rainVolumeMm || 5.2;
 
     const [ry, rm, rd] = latestRainDate.split('-');
     const formattedRainDate = `${rd}/${rm}/${ry}`;
@@ -1290,7 +1293,7 @@ app.post('/api/calendar/tasks', (req, res) => {
   }
 
   const isRainTask = category === 'chuva' || Boolean(isRain) || Boolean(rained);
-  const volume = rainVolumeMm !== undefined ? Number(rainVolumeMm) : (isRainTask ? 15 : 0);
+  const volume = rainVolumeMm !== undefined ? Number(rainVolumeMm) : (isRainTask ? 5.2 : 0);
   const addedDay = isRainTask && volume > 5;
 
   const newTask: CalendarTask = {
@@ -1327,7 +1330,7 @@ app.post('/api/calendar/tasks', (req, res) => {
 
 // 13b. Calendar - Quick Rain Log / Toggle
 app.post('/api/calendar/quick-rain', (req, res) => {
-  const { date, rained = true, rainVolumeMm = 15, rainPeriod = 'tarde', paralyzedWork = false, notes = '' } = req.body;
+  const { date, rained = true, rainVolumeMm = 5.2, rainPeriod = 'tarde', paralyzedWork = false, notes = '' } = req.body;
 
   if (!date) {
     return res.status(400).json({ error: 'Data para registro de chuva é obrigatória.' });

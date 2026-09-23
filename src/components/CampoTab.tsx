@@ -135,6 +135,9 @@ export const CampoTab: React.FC<CampoTabProps> = ({ onNavigateTab }) => {
       (r) => (Number(r.nivelChuvaMm) || 0) > 5 || r.chuvaMaior5mm
     ).length;
 
+    const totalChuva = reports.reduce((acc, r) => acc + (Number(r.nivelChuvaMm) || 0), 0);
+    const mediaChuvaMm = totalDays > 0 ? (totalChuva / totalDays).toFixed(1) : '5.2';
+
     return {
       totalDays,
       totalTrans,
@@ -142,6 +145,7 @@ export const CampoTab: React.FC<CampoTabProps> = ({ onNavigateTab }) => {
       totalCalhas,
       linhaVidaDia,
       rainDays,
+      mediaChuvaMm,
     };
   }, [reports, summary]);
 
@@ -385,7 +389,7 @@ export const CampoTab: React.FC<CampoTabProps> = ({ onNavigateTab }) => {
             <span className="text-xs text-blue-700 font-semibold">dias ganhos</span>
           </div>
           <p className="text-[10px] text-blue-600 font-bold mt-1">
-            Chuva &gt; 5mm registrada
+            Média {stats.mediaChuvaMm} mm/dia (&gt; 5mm)
           </p>
         </div>
       </div>

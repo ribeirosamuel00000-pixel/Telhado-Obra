@@ -99,7 +99,7 @@ export function PublicRoofControl({
     metragemCalhas: '',
     metragemLinhaVida: '',
     metragem: '',
-    nivelChuvaMm: '',
+    nivelChuvaMm: '5.2',
     statusGeral: 'Em andamento' as 'Em andamento' | 'Concluído' | 'Paralisado',
     descricaoExecucao: '',
     condicoesClimaticas: 'Ensolarado / Favorável em todos os períodos',
@@ -209,7 +209,7 @@ export function PublicRoofControl({
         metragemCalhas: '',
         metragemLinhaVida: '',
         metragem: '',
-        nivelChuvaMm: '',
+        nivelChuvaMm: '5.2',
         descricaoExecucao: '',
         materiaisRecebidos: '',
         descricaoOcorrencia: '',
@@ -1456,7 +1456,7 @@ export function PublicRoofControl({
                             : prev.periodosAfetadosClima,
                       }));
                     }}
-                    placeholder="Ex: 15 ou 0"
+                    placeholder="5.2"
                     className={`w-full px-3 py-2 bg-slate-50 border rounded-xl text-xs font-bold focus:outline-none focus:ring-2 ${
                       Number(formData.nivelChuvaMm) > 5
                         ? 'border-blue-500 text-blue-900 bg-blue-50/50 ring-2 ring-blue-300'
