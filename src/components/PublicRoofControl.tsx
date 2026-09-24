@@ -49,22 +49,29 @@ import {
   Maximize2,
   Activity,
   Sparkles,
+  Database,
+  RefreshCw,
 } from 'lucide-react';
+import { ConsolidatedProgressCard } from './ConsolidatedProgressCard';
 
 interface PublicRoofControlProps {
   onOpenDeveloperLogin: () => void;
   isDeveloperAuthenticated?: boolean;
+  onNavigateTab?: (tab: string) => void;
 }
 
 export function PublicRoofControl({
   onOpenDeveloperLogin,
   isDeveloperAuthenticated = false,
+  onNavigateTab,
 }: PublicRoofControlProps) {
   const [summary, setSummary] = useState<RoofProjectSummary | null>(null);
   const [reports, setReports] = useState<RoofDailyReport[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [successToast, setSuccessToast] = useState<string | null>(null);
+  const [isSyncingFirebase, setIsSyncingFirebase] = useState(false);
+  const [firebaseSynced, setFirebaseSynced] = useState<string | null>(null);
   const [activeSubTab, setActiveSubTab] = useState<'form' | 'chart' | 'history'>('chart');
   const [chartMode, setChartMode] = useState<'composed' | 'stacked' | 'grouped' | 'cumulative'>('composed');
   const [chartRange, setChartRange] = useState<'all' | 'last14' | 'last7' | 'setembro' | 'agosto'>('all');
@@ -99,7 +106,7 @@ export function PublicRoofControl({
     metragemCalhas: '',
     metragemLinhaVida: '',
     metragem: '',
-    nivelChuvaMm: '5.2',
+    nivelChuvaMm: '',
     statusGeral: 'Em andamento' as 'Em andamento' | 'Concluído' | 'Paralisado',
     descricaoExecucao: '',
     condicoesClimaticas: 'Ensolarado / Favorável em todos os períodos',
@@ -125,6 +132,21 @@ export function PublicRoofControl({
       console.error('Erro ao carregar dados de telhado:', err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSyncFirebase = async () => {
+    try {
+      setIsSyncingFirebase(true);
+      const res = await api.syncAllToFirebase();
+      setFirebaseSynced(`${res.syncedReports} RDOs sincronizados no Firebase!`);
+      setSuccessToast(`Base de dados do Firebase sincronizada com sucesso! (${res.syncedReports} relatórios e ${res.syncedTasks} tarefas)`);
+      setTimeout(() => setFirebaseSynced(null), 6000);
+      await loadData();
+    } catch (err: any) {
+      console.error('Erro na sincronização Firebase:', err);
+    } finally {
+      setIsSyncingFirebase(false);
     }
   };
 
@@ -209,7 +231,7 @@ export function PublicRoofControl({
         metragemCalhas: '',
         metragemLinhaVida: '',
         metragem: '',
-        nivelChuvaMm: '5.2',
+        nivelChuvaMm: '',
         descricaoExecucao: '',
         materiaisRecebidos: '',
         descricaoOcorrencia: '',
@@ -402,6 +424,20 @@ export function PublicRoofControl({
           </div>
 
           <div className="flex items-center gap-3 self-end sm:self-auto">
+            <button
+              onClick={handleSyncFirebase}
+              disabled={isSyncingFirebase}
+              title="Sincronizar todos os dados no Firebase Firestore"
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                firebaseSynced
+                  ? 'bg-emerald-600 text-white'
+                  : 'bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-500 hover:to-amber-600 text-white shadow-xs'
+              }`}
+            >
+              <Database className={`w-3.5 h-3.5 ${isSyncingFirebase ? 'animate-spin' : ''}`} />
+              <span>{isSyncingFirebase ? 'Sincronizando...' : firebaseSynced ? 'Firebase OK' : 'Sincronizar Firebase'}</span>
+            </button>
+
             <div className="flex items-center text-xs font-semibold text-slate-400 bg-slate-900 border border-slate-800 rounded-lg px-2 py-1">
               <span className="text-white font-bold px-1.5 py-0.5 bg-[#d71920] rounded">PT</span>
               <span className="px-1.5 py-0.5 hover:text-white cursor-pointer">EN</span>
@@ -441,7 +477,17 @@ export function PublicRoofControl({
         </div>
       )}
 
-      {/* BANNER DE CRONOGRAMA DINÂMICO & REGRA DE CHUVAS (IA SAMUEL) */}
+      {/* CARD CONSOLIDADO DE AVANÇO FÍSICO DA OBRA (TELHAS + LINHA DE VIDA + CRONOGRAMA) */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 pt-4">
+        <ConsolidatedProgressCard
+          summary={summary}
+          onNavigateToForm={() => setActiveSubTab('form')}
+          onNavigateToCalendar={() => onNavigateTab && onNavigateTab('cronograma')}
+          className="shadow-sm"
+        />
+      </div>
+
+      {/* BANNER DE CRONOGRAMA DINÂMICO & REGRA DE CHUVAS (SISTEMA TURNKEY SANY) */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 pt-4">
         <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-blue-950 text-white rounded-2xl p-4 sm:p-5 border border-slate-700 shadow-md flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
           <div className="flex items-start sm:items-center gap-3.5">
@@ -454,7 +500,7 @@ export function PublicRoofControl({
                   Calendário de Obras Savoy • Regra de Extensão por Chuva (&gt;5mm)
                 </h2>
                 <span className="bg-blue-500/20 text-blue-300 border border-blue-400/30 text-[10px] font-bold px-2 py-0.5 rounded-full">
-                  IA Samuel Conectada
+                  Sistema Turnkey Conectado
                 </span>
               </div>
               <p className="text-xs text-slate-300 leading-relaxed">
@@ -473,7 +519,7 @@ export function PublicRoofControl({
                   setWhatsappModal({
                     show: true,
                     title: '📱 Atualização Diária da Cobertura • WhatsApp',
-                    subtitle: `Assistente Samuel • Envio direto para (${data.targetPhoneFormatted})`,
+                    subtitle: `Sistema Turnkey SANY • Envio direto para (${data.targetPhoneFormatted})`,
                     targetPhone: data.targetPhone,
                     targetPhoneFormatted: data.targetPhoneFormatted,
                     date: data.report?.dataPreenchimento || '',
@@ -497,7 +543,7 @@ export function PublicRoofControl({
                   setWhatsappModal({
                     show: true,
                     title: '⏰ Lembrete Diário 08h30 • SVA Engenharia',
-                    subtitle: `Assistente Samuel • Disparo para (${data.targetPhoneFormatted})`,
+                    subtitle: `Sistema Turnkey SANY • Disparo para (${data.targetPhoneFormatted})`,
                     targetPhone: data.targetPhone,
                     targetPhoneFormatted: data.targetPhoneFormatted,
                     date: '',
@@ -1486,7 +1532,7 @@ export function PublicRoofControl({
                     </div>
                     <p className="text-xs text-blue-800 leading-relaxed font-medium">
                       Pela diretriz contratual de intempéries, o <strong>prestador de serviço ganha +1 dia corrido adicional</strong> no prazo final da obra (Início: 17/08/2026, 75 dias base).
-                      Ao enviar o formulário, a <strong>IA Samuel</strong> estenderá o calendário de obras e preparará a notificação de WhatsApp automaticamente!
+                      Ao enviar o formulário, o <strong>Sistema Turnkey SANY</strong> estenderá o calendário de obras e preparará a notificação de WhatsApp automaticamente!
                     </p>
                   </div>
                 </div>
@@ -1848,7 +1894,7 @@ export function PublicRoofControl({
         )}
       </div>
 
-      {/* MODAL DE COMUNICADO WHATSAPP DA IA SAMUEL (DIÁRIO / CHUVA / LEMBRETE 08H30) */}
+      {/* MODAL DE COMUNICADO WHATSAPP OFICIAL (DIÁRIO / CHUVA / LEMBRETE 08H30) */}
       {whatsappModal?.show && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in">
           <div className="bg-white rounded-3xl max-w-xl w-full border border-slate-200 shadow-2xl overflow-hidden animate-in zoom-in-95 duration-150">
@@ -1899,12 +1945,12 @@ export function PublicRoofControl({
                 )}
               </div>
 
-              {/* Samuel's WhatsApp Preview Box */}
+              {/* Official WhatsApp Preview Box */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1.5 flex items-center justify-between">
                   <span className="flex items-center gap-1.5 text-emerald-800">
                     <MessageSquare className="w-4 h-4 text-emerald-600" />
-                    Mensagem de WhatsApp da IA Samuel:
+                    Prévia do Comunicado Oficial via WhatsApp:
                   </span>
                   <span className="text-[10px] text-slate-500 font-mono font-bold">{whatsappModal.targetPhoneFormatted}</span>
                 </label>

@@ -162,6 +162,7 @@ function MainApp() {
           <PublicRoofControl
             onOpenDeveloperLogin={() => {}}
             isDeveloperAuthenticated={true}
+            onNavigateTab={(tab: string) => setActiveTab(tab === 'cronograma' ? 'calendario' : (tab as any))}
           />
         )}
 
@@ -180,32 +181,8 @@ function MainApp() {
         )}
       </main>
 
-      {/* Floating Assistente Samuel Summon Button (Accessible from any screen) */}
-      <div className="fixed bottom-5 right-5 z-40">
-        <button
-          onClick={() => setIsAIModalOpen(true)}
-          className={`relative flex items-center gap-2.5 px-4 py-3 rounded-2xl shadow-xl font-bold text-xs transition-all cursor-pointer ${
-            pendingActionCount > 0
-              ? 'bg-[#d71920] hover:bg-[#b9141b] text-white ring-4 ring-red-500/20'
-              : 'bg-slate-900 hover:bg-slate-800 text-white hover:scale-105'
-          }`}
-          title="Abrir Assistente Samuel • Análise e Apontamentos"
-        >
-          <Bot className="w-5 h-5 text-emerald-300" />
-          <div className="flex flex-col text-left">
-            <span className="leading-tight">Assistente Samuel</span>
-            <span className="text-[10px] font-mono text-slate-200">
-              {pendingActionCount > 0 ? `${pendingActionCount} apontamento pendente` : 'Auditoria Ativa'}
-            </span>
-          </div>
-          {pendingActionCount > 0 && (
-            <span className="w-2.5 h-2.5 rounded-full bg-white animate-ping ml-1" />
-          )}
-        </button>
-      </div>
-
-      {/* AI Agent Modal */}
-      {projectData && (
+      {/* AI Agent Modal (Accessible via specific admin actions if needed) */}
+      {projectData && isAIModalOpen && (
         <AIAgentModal
           isOpen={isAIModalOpen}
           onClose={() => setIsAIModalOpen(false)}

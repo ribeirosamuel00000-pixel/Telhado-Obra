@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { CalendarTask, ProjectScheduleInfo, RoofDailyReport } from '../types';
+import { CalendarTask, ProjectScheduleInfo, RoofDailyReport, WeatherAlert } from '../types';
 import { api } from '../services/api';
 import { computeProjectSchedule } from '../data/roofData';
+import { CurvaSChart } from './CurvaSChart';
 import {
   Calendar as CalendarIcon,
   ChevronLeft,
@@ -26,6 +27,10 @@ import {
   Umbrella,
   Info,
   ExternalLink,
+  Wind,
+  Sparkles,
+  Database,
+  RefreshCw,
 } from 'lucide-react';
 
 export function CalendarTab() {
@@ -46,6 +51,19 @@ export function CalendarTab() {
     whatsappMessage: string;
   } | null>(null);
   const [copiedMessage, setCopiedMessage] = useState(false);
+  const [weatherAlerts, setWeatherAlerts] = useState<WeatherAlert[]>([]);
+  const [weatherSummary, setWeatherSummary] = useState<{
+    city: string;
+    overallRisk: 'baixo' | 'moderado' | 'alto' | 'critico';
+    daysWithStoppageRisk: number;
+    contractExtensionDaysRecommended: number;
+    safetyMessage: string;
+    technicalSynthesis?: string;
+  } | null>(null);
+  const [weatherLoading, setWeatherLoading] = useState(false);
+  const [weatherAnalyzedAt, setWeatherAnalyzedAt] = useState<string | null>(null);
+  const [isSyncingFirebase, setIsSyncingFirebase] = useState(false);
+  const [firebaseSyncNotice, setFirebaseSyncNotice] = useState<string | null>(null);
 
   // Quick Rain Log Form State
   const [rainData, setRainData] = useState({
@@ -71,20 +89,56 @@ export function CalendarTab() {
   const loadTasks = async () => {
     try {
       setLoading(true);
-      const [data, rainRes, reports] = await Promise.all([
+      const [data, rainRes, reports, weatherRes] = await Promise.all([
         api.getCalendarTasks(),
         api.getRainWhatsAppMessage().catch(() => null),
         api.getRoofReports().catch(() => []),
+        api.analyzeWeatherWithGemini('Campinas', 'SP', 7).catch(() => null),
       ]);
       setTasks(data);
       setRoofReports(reports || []);
       if (rainRes?.scheduleInfo) {
         setScheduleInfo(rainRes.scheduleInfo);
       }
+      if (weatherRes?.success) {
+        setWeatherAlerts(weatherRes.alerts || []);
+        setWeatherSummary(weatherRes.summary || null);
+        setWeatherAnalyzedAt(new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }));
+      }
     } catch (err) {
       console.error('Erro ao carregar tarefas do calendário:', err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadWeatherAnalysis = async () => {
+    try {
+      setWeatherLoading(true);
+      const res = await api.analyzeWeatherWithGemini('Campinas', 'SP', 7);
+      if (res.success) {
+        setWeatherAlerts(res.alerts || []);
+        setWeatherSummary(res.summary || null);
+        setWeatherAnalyzedAt(new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }));
+      }
+    } catch (err) {
+      console.error('Erro na análise de clima Gemini:', err);
+    } finally {
+      setWeatherLoading(false);
+    }
+  };
+
+  const handleSyncFirebase = async () => {
+    try {
+      setIsSyncingFirebase(true);
+      const res = await api.syncAllToFirebase();
+      setFirebaseSyncNotice(`${res.syncedReports} relatórios RDO e ${res.syncedTasks} tarefas sincronizadas no Firebase!`);
+      setTimeout(() => setFirebaseSyncNotice(null), 5000);
+      await loadTasks();
+    } catch (err: any) {
+      console.error('Erro na sincronização Firebase:', err);
+    } finally {
+      setIsSyncingFirebase(false);
     }
   };
 
@@ -105,10 +159,13 @@ export function CalendarTab() {
   const activeSchedule = scheduleInfo || computedSchedule;
 
   // Helper to extract weather and precipitation details for any date
+  // DEIXA A CHUVA REGISTRADA APENAS NOS DIAS QUE DE FATO CHOVERAM (volumeMm > 0 ou isRainOver5mm)
   const getDayRainDetail = (dateStr: string) => {
     const rep = reportsByDate.get(dateStr);
     const dayTasksList = tasks.filter((t) => t.date === dateStr);
-    const rainTask = dayTasksList.find((t) => t.category === 'chuva' || t.isRain || t.rained);
+    const rainTask = dayTasksList.find(
+      (t) => (t.category === 'chuva' || t.isRain) && (t.rained !== false && ((t.rainVolumeMm ?? 0) > 0 || t.addedDayToDeadline))
+    );
 
     const repVol = rep?.nivelChuvaMm !== undefined ? Number(rep.nivelChuvaMm) : 0;
     const taskVol = rainTask?.rainVolumeMm !== undefined ? Number(rainTask.rainVolumeMm) : 0;
@@ -120,8 +177,9 @@ export function CalendarTab() {
       Boolean(rep?.ganhouDiaAdicional) ||
       Boolean(rainTask?.addedDayToDeadline);
 
+    const hasRain = volumeMm > 0 || isRainOver5mm;
     const period = rep?.periodosAfetadosClima || rainTask?.rainPeriod || (isRainOver5mm ? 'Período chuvoso' : 'Sem paralisação');
-    const condition = rep?.condicoesClimaticas || (rainTask ? 'Chuva / Intempérie' : 'Estável');
+    const condition = rep?.condicoesClimaticas || (hasRain ? 'Chuva / Intempérie' : 'Estável');
     const isParalyzed =
       rep?.statusGeral === 'Paralisado' ||
       Boolean(rainTask?.paralyzedWork) ||
@@ -129,7 +187,7 @@ export function CalendarTab() {
       (rep?.descricaoExecucao?.toLowerCase().includes('não conseguimos trabalhar') ?? false);
 
     return {
-      hasRain: volumeMm > 0 || isRainOver5mm || Boolean(rainTask),
+      hasRain,
       isRainOver5mm,
       volumeMm,
       period,
@@ -181,7 +239,7 @@ export function CalendarTab() {
       .map(([date, detail]) => ({ date, ...detail }))
       .sort((a, b) => a.date.localeCompare(b.date));
 
-    const totalRainVolumeMm = Number(rainDays.reduce((acc, d) => acc + (Number(d.volumeMm) || 0), 0).toFixed(1));
+    const totalVolumeMm = Number(rainDays.reduce((acc, d) => acc + (Number(d.volumeMm) || 0), 0).toFixed(1));
     const fullyParalyzedDays = rainDays.filter((d) => d.isParalyzed).length;
 
     return {
@@ -363,7 +421,261 @@ export function CalendarTab() {
 
   return (
     <div className="space-y-6">
-      {/* BANNER DE EXTENSÃO DO CALENDÁRIO POR CHUVA (>5MM) COM IA SAMUEL */}
+      {/* ========================================================================= */}
+      {/* GRÁFICO CURVA S: PLANEJADO VS EXECUTADO COM DESVIO ACUMULADO SEMANAL */}
+      {/* ========================================================================= */}
+      <CurvaSChart
+        reports={roofReports}
+        scheduleInfo={activeSchedule}
+        className="shadow-xs"
+      />
+
+      {/* ========================================================================= */}
+      {/* GEMINI AI: ANÁLISE METEOROLÓGICA & ALERTAS DE RISCO DE PARALISAÇÃO POR CHUVA */}
+      {/* ========================================================================= */}
+      <div className="bg-white rounded-2xl border-2 border-indigo-500/90 shadow-sm overflow-hidden transition-all">
+        {/* Header da IA Gemini */}
+        <div className="bg-gradient-to-r from-indigo-950 via-slate-900 to-blue-950 text-white p-5 flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-indigo-900/60">
+          <div className="flex items-start sm:items-center gap-3.5">
+            <div className="p-3 rounded-2xl bg-indigo-500/20 text-indigo-300 border border-indigo-400/40 shrink-0">
+              <Sparkles className="w-6 h-6 animate-pulse text-indigo-300" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="text-base sm:text-lg font-black tracking-tight text-white">
+                  Previsão do Tempo & Alertas de Paralisação por Chuva
+                </h3>
+                <span className="bg-gradient-to-r from-indigo-500 to-purple-600 text-white text-[10px] font-black px-2.5 py-0.5 rounded-full flex items-center gap-1 shadow-xs">
+                  <Sparkles className="w-3 h-3" />
+                  Gemini AI
+                </span>
+                <span className="bg-slate-800 text-slate-300 border border-slate-700 text-[10px] font-mono px-2 py-0.5 rounded-md">
+                  Campinas / SP • Canteiro Savoy
+                </span>
+              </div>
+              <p className="text-xs text-indigo-200 mt-1 leading-relaxed">
+                Análise meteorológica preditiva e monitoramento das diretrizes de trabalho em altura (NR-35) e prorrogação contratual Savoy (&gt;5mm).
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2 self-stretch sm:self-auto shrink-0">
+            <button
+              onClick={loadWeatherAnalysis}
+              disabled={weatherLoading}
+              className="flex items-center justify-center gap-1.5 px-3.5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl transition-all shadow-xs cursor-pointer disabled:opacity-50"
+            >
+              <RefreshCw className={`w-4 h-4 ${weatherLoading ? 'animate-spin' : ''}`} />
+              <span>{weatherLoading ? 'Analisando Previsão...' : 'Atualizar Previsão Gemini'}</span>
+            </button>
+
+            <button
+              onClick={handleSyncFirebase}
+              disabled={isSyncingFirebase}
+              title="Salvar todos os apontamentos, RDOs e alertas na base de dados Firebase"
+              className="flex items-center justify-center gap-1.5 px-3.5 py-2.5 bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-500 hover:to-amber-600 text-white text-xs font-bold rounded-xl transition-all shadow-xs cursor-pointer disabled:opacity-50"
+            >
+              <Database className={`w-4 h-4 ${isSyncingFirebase ? 'animate-spin' : ''}`} />
+              <span>{isSyncingFirebase ? 'Sincronizando...' : 'Sincronizar Firebase'}</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Feedback de sincronização Firebase */}
+        {firebaseSyncNotice && (
+          <div className="bg-emerald-50 border-b border-emerald-200 px-5 py-2.5 flex items-center justify-between text-xs font-bold text-emerald-900 animate-in fade-in">
+            <div className="flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+              <span>{firebaseSyncNotice}</span>
+            </div>
+            <span className="text-[10px] text-emerald-700 font-mono">Firestore Conectado</span>
+          </div>
+        )}
+
+        {/* Síntese e Alertas Principais */}
+        <div className="p-5 bg-indigo-50/40 border-b border-indigo-100">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+            <div className="bg-white p-3.5 rounded-xl border border-indigo-200/80 shadow-2xs">
+              <span className="text-[10px] font-black uppercase text-indigo-900 tracking-wider block">
+                Risco Geral de Intempérie
+              </span>
+              <div className="mt-1 flex items-center gap-2">
+                <span
+                  className={`text-sm font-black px-2.5 py-0.5 rounded-lg uppercase ${
+                    weatherSummary?.overallRisk === 'critico'
+                      ? 'bg-rose-100 text-rose-800 border border-rose-300'
+                      : weatherSummary?.overallRisk === 'alto'
+                      ? 'bg-red-100 text-red-800 border border-red-300'
+                      : weatherSummary?.overallRisk === 'moderado'
+                      ? 'bg-amber-100 text-amber-800 border border-amber-300'
+                      : 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                  }`}
+                >
+                  {weatherSummary?.overallRisk || 'Moderado'}
+                </span>
+                <span className="text-[11px] text-slate-500 font-medium">Próximos 7 dias</span>
+              </div>
+            </div>
+
+            <div className="bg-white p-3.5 rounded-xl border border-indigo-200/80 shadow-2xs">
+              <span className="text-[10px] font-black uppercase text-indigo-900 tracking-wider block">
+                Dias c/ Risco Paralisação
+              </span>
+              <div className="mt-1 flex items-baseline gap-1.5">
+                <span className="text-xl font-black text-rose-700">
+                  {weatherSummary?.daysWithStoppageRisk ?? 2}
+                </span>
+                <span className="text-xs font-semibold text-slate-600">dias sob alerta NR-35</span>
+              </div>
+            </div>
+
+            <div className="bg-white p-3.5 rounded-xl border border-indigo-200/80 shadow-2xs">
+              <span className="text-[10px] font-black uppercase text-indigo-900 tracking-wider block">
+                Prorrogação Savoy Prevista
+              </span>
+              <div className="mt-1 flex items-baseline gap-1.5">
+                <span className="text-xl font-black text-blue-700">
+                  +{weatherSummary?.contractExtensionDaysRecommended ?? 2} dias
+                </span>
+                <span className="text-xs font-semibold text-slate-600">chuva &gt; 5mm prevista</span>
+              </div>
+            </div>
+
+            <div className="bg-white p-3.5 rounded-xl border border-indigo-200/80 shadow-2xs">
+              <span className="text-[10px] font-black uppercase text-indigo-900 tracking-wider block">
+                Última Telemetria Gemini
+              </span>
+              <div className="mt-1 flex items-baseline gap-1.5">
+                <span className="text-xs font-mono font-bold text-slate-800">
+                  {weatherAnalyzedAt ? `${weatherAnalyzedAt} (Hoje)` : 'Recém-gerada'}
+                </span>
+                <span className="text-[10px] text-emerald-600 font-bold">● Online</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Mensagem de Segurança NR-35 da IA */}
+          <div className="p-3.5 rounded-xl bg-white border border-indigo-200 shadow-2xs flex items-start gap-3">
+            <div className="p-2 rounded-lg bg-indigo-100 text-indigo-800 shrink-0 mt-0.5">
+              <ShieldCheck className="w-5 h-5 text-indigo-700" />
+            </div>
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-black text-indigo-950 uppercase tracking-wide">
+                  Diretriz Técnica de Segurança & Operação
+                </span>
+                <span className="bg-blue-100 text-blue-800 text-[10px] font-bold px-2 py-0.5 rounded">
+                  NR-35 Trabalho em Altura
+                </span>
+              </div>
+              <p className="text-xs text-slate-700 leading-relaxed font-medium">
+                {weatherSummary?.safetyMessage ||
+                  'Atenção às rajadas de vento e pancadas isoladas de chuva à tarde no canteiro Savoy. Paralisação imediata das atividades de cobertura conforme NR-35 se houver garoa ou ventos > 35 km/h.'}
+              </p>
+              {weatherSummary?.technicalSynthesis && (
+                <p className="text-[11px] text-indigo-700 font-semibold">
+                  📌 {weatherSummary.technicalSynthesis}
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Grade de 7 Dias com Alertas Detalhados */}
+        <div className="p-5">
+          <h4 className="text-xs font-black uppercase tracking-wider text-slate-500 mb-3 flex items-center justify-between">
+            <span>Previsão Estendida • Próximos 7 Dias no Canteiro Savoy (Campinas/SP)</span>
+            <span className="text-[10px] text-slate-400 font-normal">Atualizado via API Gemini</span>
+          </h4>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-7 gap-3">
+            {weatherAlerts.map((alert, idx) => {
+              const [y, m, d] = (alert.date || '').split('-');
+              const formattedDate = d && m ? `${d}/${m}` : alert.date;
+              const isOver5 = alert.expectedRainMm > 5 || alert.grantContractDay;
+              const hasStopRisk = alert.stoppageRisk;
+
+              return (
+                <div
+                  key={alert.id || idx}
+                  className={`p-3 rounded-xl border flex flex-col justify-between transition-all ${
+                    hasStopRisk
+                      ? isOver5
+                        ? 'border-2 border-blue-500 bg-blue-50/80 shadow-xs'
+                        : 'border-2 border-amber-400 bg-amber-50/70 shadow-xs'
+                      : 'border-slate-200 bg-white hover:border-slate-300'
+                  }`}
+                >
+                  <div>
+                    {/* Top Row: Date and Badge */}
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs font-black text-slate-900 font-mono">
+                        {formattedDate}
+                      </span>
+                      {hasStopRisk ? (
+                        <span className="bg-rose-600 text-white text-[9px] font-black px-1.5 py-0.5 rounded uppercase">
+                          Paralisação
+                        </span>
+                      ) : (
+                        <span className="bg-emerald-100 text-emerald-800 text-[9px] font-bold px-1.5 py-0.5 rounded">
+                          Seguro
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Rain Mm & Prob */}
+                    <div className="my-1.5 space-y-1">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[11px] text-slate-500 font-semibold flex items-center gap-1">
+                          <CloudRain className={`w-3.5 h-3.5 ${alert.expectedRainMm > 0 ? 'text-blue-600' : 'text-slate-400'}`} />
+                          Chuva:
+                        </span>
+                        <span className={`text-xs font-black ${isOver5 ? 'text-blue-700 font-black' : 'text-slate-800'}`}>
+                          {alert.expectedRainMm} mm
+                        </span>
+                      </div>
+
+                      <div className="flex items-center justify-between text-[11px]">
+                        <span className="text-slate-500 font-medium">Probabilidade:</span>
+                        <span className="font-bold text-slate-700">{alert.probabilityPercent}%</span>
+                      </div>
+
+                      <div className="flex items-center justify-between text-[11px]">
+                        <span className="text-slate-500 font-medium flex items-center gap-1">
+                          <Wind className="w-3 h-3 text-slate-400" />
+                          Vento:
+                        </span>
+                        <span className={`font-bold ${alert.windSpeedKmh > 35 ? 'text-rose-700 font-black' : 'text-slate-700'}`}>
+                          {alert.windSpeedKmh} km/h
+                        </span>
+                      </div>
+                    </div>
+
+                    <p className="text-[10px] text-slate-600 line-clamp-2 mt-2 font-medium">
+                      {alert.conditionText}
+                    </p>
+                  </div>
+
+                  {/* Savoy contract extension pill */}
+                  <div className="mt-3 pt-2 border-t border-slate-100 space-y-1">
+                    {isOver5 ? (
+                      <span className="block text-center text-[10px] font-black bg-blue-600 text-white py-1 px-1.5 rounded-lg shadow-2xs">
+                        +1 Dia Savoy (&gt;5mm)
+                      </span>
+                    ) : (
+                      <span className="block text-center text-[10px] font-semibold text-slate-500 bg-slate-100 py-0.5 px-1 rounded">
+                        Sem impacto no prazo
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      {/* BANNER DE EXTENSÃO DO CALENDÁRIO POR CHUVA (>5MM) */}
       <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-blue-950 text-white rounded-2xl p-4 sm:p-5 border border-slate-700 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
         <div className="flex items-start sm:items-center gap-3.5">
           <div className="p-3 bg-blue-600/30 border border-blue-400/40 rounded-xl text-blue-300 shrink-0">
@@ -404,7 +716,7 @@ export function CalendarTab() {
           className="w-full sm:w-auto flex items-center justify-center gap-2 px-3.5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl transition-all shadow-xs cursor-pointer shrink-0"
         >
           <MessageSquare className="w-4 h-4" />
-          <span>Notificação WhatsApp (Samuel)</span>
+          <span>Notificação Oficial WhatsApp</span>
         </button>
       </div>
 
@@ -481,12 +793,12 @@ export function CalendarTab() {
             </div>
             <div className="my-2.5 flex items-baseline gap-1.5">
               <span className="text-3xl sm:text-4xl font-black text-slate-900 tracking-tight">
-                {monthRainStats.totalVolumeMm.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}
+                {(monthRainStats.totalVolumeMm ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}
               </span>
               <span className="text-sm font-bold text-slate-500">mm aferidos</span>
             </div>
             <div className="pt-2 border-t border-slate-100 text-[11px] text-slate-500 font-medium">
-              Média: <strong>{monthRainStats.count > 0 ? (monthRainStats.totalVolumeMm / monthRainStats.count).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : '0,0'} mm</strong> por dia chuvoso
+              Média: <strong>{monthRainStats.count > 0 ? ((monthRainStats.totalVolumeMm ?? 0) / monthRainStats.count).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) : '0,0'} mm</strong> por dia chuvoso
             </div>
           </div>
 
@@ -797,7 +1109,7 @@ export function CalendarTab() {
           {/* Banner de ALERTA CLIMÁTICO se for dia com chuva > 5mm */}
           {(() => {
             const dayRain = getDayRainDetail(selectedDate);
-            if (!dayRain.isRainOver5mm && !dayTasks.some((t) => t.category === 'chuva' || t.isRain || t.rained)) {
+            if (!dayRain.isRainOver5mm && !(dayRain.hasRain && dayRain.volumeMm > 0)) {
               return null;
             }
 
@@ -1064,7 +1376,7 @@ export function CalendarTab() {
             const isToday = dayStr === selectedDate;
             const rainDetail = getDayRainDetail(dayStr);
             const isRainOver5mm = rainDetail.isRainOver5mm;
-            const isRainDay = dayTasksList.some((t) => t.category === 'chuva' || t.isRain || t.rained) || isRainOver5mm;
+            const isRainDay = (rainDetail.hasRain && rainDetail.volumeMm > 0) || isRainOver5mm || dayTasksList.some((t) => (t.category === 'chuva' || t.isRain) && (t.rained !== false && (t.rainVolumeMm ?? 0) > 0));
             const isProvider = isProviderDeadline(dayStr);
             const dayReport = reportsByDate.get(dayStr);
 
@@ -1280,7 +1592,7 @@ export function CalendarTab() {
               const isSelected = dayStr === selectedDate;
               const rainDetail = getDayRainDetail(dayStr);
               const isRainOver5mm = rainDetail.isRainOver5mm;
-              const isRainDay = dayTasksList.some((t) => t.category === 'chuva' || t.isRain || t.rained) || isRainOver5mm;
+              const isRainDay = (rainDetail.hasRain && rainDetail.volumeMm > 0) || isRainOver5mm || dayTasksList.some((t) => (t.category === 'chuva' || t.isRain) && (t.rained !== false && (t.rainVolumeMm ?? 0) > 0));
               const isProvider = isProviderDeadline(dayStr);
               const dayReport = reportsByDate.get(dayStr);
 
@@ -1755,7 +2067,7 @@ export function CalendarTab() {
                     🌧️ Notificação de Chuva & Extensão de Prazo
                   </h3>
                   <p className="text-xs text-blue-100">
-                    Assistente Samuel • Regra Contratual Savoy (&gt; 5 mm)
+                    Sistema Turnkey SANY • Regra Contratual Savoy (&gt; 5 mm)
                   </p>
                 </div>
               </div>
@@ -1792,12 +2104,12 @@ export function CalendarTab() {
                 </div>
               </div>
 
-              {/* Samuel's WhatsApp Preview Box */}
+              {/* Official WhatsApp Preview Box */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1.5 flex items-center justify-between">
                   <span className="flex items-center gap-1.5 text-emerald-800">
                     <MessageSquare className="w-4 h-4 text-emerald-600" />
-                    Mensagem de WhatsApp da IA Samuel:
+                    Prévia do Comunicado Oficial via WhatsApp:
                   </span>
                   <span className="text-[10px] text-slate-400">Pronta para envio</span>
                 </label>

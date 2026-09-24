@@ -249,3 +249,21 @@ export interface SvaReminderSchedulerStatus {
   totalDispatches: number;
   recentDispatches: WhatsAppReminderRecord[];
 }
+
+export interface WeatherAlert {
+  id: string;
+  date: string;
+  location: string;
+  city: string;
+  riskLevel: 'baixo' | 'moderado' | 'alto' | 'critico';
+  expectedRainMm: number;
+  probabilityPercent: number;
+  windSpeedKmh: number;
+  stoppageRisk: boolean;
+  grantContractDay: boolean;
+  conditionText: string;
+  safetyWarning: string;
+  technicalRecommendation: string;
+  generatedAt: string;
+  source: 'gemini_ai' | 'estacao_meteorologica_campinas';
+}
