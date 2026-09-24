@@ -12,6 +12,9 @@ export default defineConfig(() => {
       },
     },
     server: {
+      // The sandbox exposes the dev server through a generated public hostname.
+      // Vite rejects that hostname unless it is explicitly allowed.
+      allowedHosts: true as const,
       // HMR is disabled in AI Studio via DISABLE_HMR env var.
       // Do not modifyâfile watching is disabled to prevent flickering during agent edits.
       hmr: process.env.DISABLE_HMR !== 'true',
