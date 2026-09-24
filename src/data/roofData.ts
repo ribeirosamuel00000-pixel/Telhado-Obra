@@ -745,10 +745,12 @@ export function computeRoofSummary(reports: RoofDailyReport[], tasks: CalendarTa
   const sorted = [...reports].sort((a, b) => new Date(b.dataPreenchimento).getTime() - new Date(a.dataPreenchimento).getTime());
   const latest = sorted[0];
 
-  // A linha de vida é aferida no dia (total instalado de 2.000m concluídos)
-  const linhaVidaInstalada = latest && latest.metragemLinhaVida !== undefined && latest.metragemLinhaVida !== null
-    ? Number(latest.metragemLinhaVida)
-    : 2000;
+  // A linha de vida é uma aferição acumulada. Registros posteriores podem
+  // deixar o campo em branco/zero sem desfazer os 2.000m já concluídos.
+  const linhaVidaInstalada = reports.reduce(
+    (max, report) => Math.max(max, Number(report.metragemLinhaVida) || 0),
+    0,
+  ) || 2000;
 
   const translucidasMeta = 1300;
   const fibrocimentoMeta = 300;
