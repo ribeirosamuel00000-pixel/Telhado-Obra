@@ -1,13 +1,29 @@
-import { initializeApp } from 'firebase/app';
+import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
-import firebaseConfig from '../firebase-applet-config.json';
+import firebaseConfigJson from '../firebase-applet-config.json';
 
-// Initialize Firebase App
-export const app = initializeApp(firebaseConfig);
+// Safely access env vars in client Vite runtime or fall back to bundled config
+const env: Record<string, string | undefined> =
+  typeof import.meta !== 'undefined' && (import.meta as any).env
+    ? (import.meta as any).env
+    : {};
+
+export const resolvedFirebaseConfig = {
+  projectId: env.VITE_FIREBASE_PROJECT_ID || firebaseConfigJson.projectId || 'gen-lang-client-0486469536',
+  appId: env.VITE_FIREBASE_APP_ID || firebaseConfigJson.appId || '1:138390740913:web:5dd55766dd21ff05282790',
+  apiKey: env.VITE_FIREBASE_API_KEY || firebaseConfigJson.apiKey || 'AIzaSyBj8hp9-5dWo7rf4LBFHcMM5Hp3SNQ-1uQ',
+  authDomain: env.VITE_FIREBASE_AUTH_DOMAIN || firebaseConfigJson.authDomain || 'gen-lang-client-0486469536.firebaseapp.com',
+  firestoreDatabaseId: env.VITE_FIREBASE_DATABASE_ID || firebaseConfigJson.firestoreDatabaseId || 'ai-studio-sanyturnkeygesto-07b1d634-7f94-4597-a18a-2b9609af574f',
+  storageBucket: env.VITE_FIREBASE_STORAGE_BUCKET || firebaseConfigJson.storageBucket || 'gen-lang-client-0486469536.firebasestorage.app',
+  messagingSenderId: env.VITE_FIREBASE_MESSAGING_SENDER_ID || firebaseConfigJson.messagingSenderId || '138390740913',
+};
+
+// Initialize Firebase App without duplicate initialization error on HMR/Vercel
+export const app = getApps().length > 0 ? getApp() : initializeApp(resolvedFirebaseConfig);
 
 // CRITICAL: Must provide firestoreDatabaseId
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+export const db = getFirestore(app, resolvedFirebaseConfig.firestoreDatabaseId);
 export const auth = getAuth(app);
 
 export enum OperationType {

@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { RoofDailyReport, RoofProjectSummary } from '../types';
 import { api } from '../services/api';
+import { firestoreSync } from '../services/firestoreSync';
+import { computeRoofSummary } from '../data/roofData';
 import {
   ResponsiveContainer,
   BarChart,
@@ -152,6 +154,19 @@ export function PublicRoofControl({
 
   useEffect(() => {
     loadData();
+
+    // Sincronização em tempo real (Firestore onSnapshot) entre diversos aparelhos (celulares, tablets, computadores)
+    const unsubscribeReports = firestoreSync.subscribeToRoofReports((liveReports) => {
+      if (liveReports && liveReports.length > 0) {
+        setReports(liveReports);
+        setSummary(computeRoofSummary(liveReports));
+        setLoading(false);
+      }
+    });
+
+    return () => {
+      unsubscribeReports();
+    };
   }, []);
 
   const handleCheckboxChange = (

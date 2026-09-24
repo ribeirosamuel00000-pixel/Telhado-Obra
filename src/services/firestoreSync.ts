@@ -7,6 +7,7 @@ import {
   query,
   orderBy,
   limit,
+  onSnapshot,
 } from 'firebase/firestore';
 import { db, handleFirestoreError, OperationType, testFirestoreConnection } from '../firebase';
 import {
@@ -30,6 +31,156 @@ export const firestoreSync = {
   // Check live connection
   async checkConnection(): Promise<boolean> {
     return await testFirestoreConnection();
+  },
+
+  // Real-time subscription to roof reports across all connected devices
+  subscribeToRoofReports(callback: (reports: RoofDailyReport[]) => void): () => void {
+    const path = 'roof_reports';
+    try {
+      const q = collection(db, path);
+      return onSnapshot(
+        q,
+        (snapshot) => {
+          if (snapshot.empty) {
+            callback([]);
+            return;
+          }
+          const reports: RoofDailyReport[] = [];
+          snapshot.forEach((snap) => {
+            const d = snap.data();
+            reports.push({
+              id: Number(d.id) || Number(snap.id.replace('rdo-', '')) || 0,
+              dataPreenchimento: d.dataPreenchimento || '',
+              setorPredio: d.setorPredio || d.predio || 'Prédio 4i1',
+              responsavel: d.responsavel || '',
+              equipeFuncionarios: d.equipeFuncionarios || '',
+              tiposServico: d.tiposServico || ['Linha de vida', 'Telha Translúcida', 'Telha de Fibrocimento', 'Calhas'],
+              qtdTranslúcidas: Number(d.qtdTranslúcidas) || 0,
+              qtdFibrocimento: Number(d.qtdFibrocimento) || 0,
+              metragemCalhas: Number(d.metragemCalhas) || 0,
+              metragemLinhaVida: Number(d.metragemLinhaVida) || 0,
+              metragem: Number(d.metragem) || 0,
+              nivelChuvaMm: Number(d.nivelChuvaMm) || 0,
+              chuvaMaior5mm: Boolean(d.chuvaMaior5mm),
+              ganhouDiaAdicional: Boolean(d.ganhouDiaAdicional),
+              statusGeral: d.statusGeral || 'Em andamento',
+              descricaoExecucao: d.descricaoExecucao || d.observacoes || '',
+              condicoesClimaticas: d.condicoesClimaticas || '',
+              periodosAfetadosClima: d.periodosAfetadosClima || 'Sem paralisação',
+              houveEntregaMateriais: d.houveEntregaMateriais || '',
+              materiaisRecebidos: d.materiaisRecebidos || '',
+              equipamentosEmUso: d.equipamentosEmUso || [],
+              condicaoEquipamentos: d.condicaoEquipamentos || 'Todos operacionais',
+              registroOcorrencias: d.registroOcorrencias || 'Nenhuma ocorrência',
+              descricaoOcorrencia: d.descricaoOcorrencia || null,
+              criadoEm: d.criadoEm || '',
+            });
+          });
+          reports.sort((a, b) => a.dataPreenchimento.localeCompare(b.dataPreenchimento));
+          callback(reports);
+        },
+        (error) => {
+          console.warn('Erro na escuta em tempo real de roof_reports:', error);
+        }
+      );
+    } catch (err) {
+      console.warn('Falha ao iniciar escuta em tempo real de roof_reports:', err);
+      return () => {};
+    }
+  },
+
+  // Real-time subscription to calendar tasks across all connected devices
+  subscribeToCalendarTasks(callback: (tasks: CalendarTask[]) => void): () => void {
+    const path = 'calendar_tasks';
+    try {
+      const q = collection(db, path);
+      return onSnapshot(
+        q,
+        (snapshot) => {
+          if (snapshot.empty) {
+            callback([]);
+            return;
+          }
+          const tasks: CalendarTask[] = [];
+          snapshot.forEach((snap) => {
+            const d = snap.data();
+            tasks.push({
+              id: d.id || snap.id,
+              title: d.title || '',
+              date: d.date || '',
+              startTime: d.startTime || '08:00',
+              endTime: d.endTime || '17:00',
+              responsible: d.responsible || 'Equipe SANY',
+              category: d.category || 'translúcida',
+              status: d.status || 'programada',
+              priority: d.priority || 'media',
+              isCompleted: Boolean(d.isCompleted),
+              isRain: Boolean(d.isRain || d.category === 'chuva'),
+              rained: Boolean(d.rained),
+              rainVolumeMm: Number(d.rainVolumeMm) || 0,
+              rainPeriod: d.rainPeriod || '',
+              paralyzedWork: Boolean(d.paralyzedWork),
+              addedDayToDeadline: Boolean(d.addedDayToDeadline || (Number(d.rainVolumeMm) || 0) > 5),
+              notes: d.notes || '',
+            });
+          });
+          tasks.sort((a, b) => a.date.localeCompare(b.date));
+          callback(tasks);
+        },
+        (error) => {
+          console.warn('Erro na escuta em tempo real de calendar_tasks:', error);
+        }
+      );
+    } catch (err) {
+      console.warn('Falha ao iniciar escuta em tempo real de calendar_tasks:', err);
+      return () => {};
+    }
+  },
+
+  // Real-time subscription to weather alerts
+  subscribeToWeatherAlerts(callback: (alerts: WeatherAlert[]) => void): () => void {
+    const path = 'weather_alerts';
+    try {
+      const q = collection(db, path);
+      return onSnapshot(
+        q,
+        (snapshot) => {
+          if (snapshot.empty) {
+            callback([]);
+            return;
+          }
+          const alerts: WeatherAlert[] = [];
+          snapshot.forEach((snap) => {
+            const d = snap.data();
+            alerts.push({
+              id: d.id || snap.id,
+              date: d.date || '',
+              location: d.location || 'Savoy Campinas',
+              city: d.city || 'Campinas',
+              riskLevel: d.riskLevel || 'baixo',
+              expectedRainMm: Number(d.expectedRainMm) || 0,
+              probabilityPercent: Number(d.probabilityPercent) || 0,
+              windSpeedKmh: Number(d.windSpeedKmh) || 0,
+              stoppageRisk: Boolean(d.stoppageRisk),
+              grantContractDay: Boolean(d.grantContractDay),
+              conditionText: d.conditionText || '',
+              safetyWarning: d.safetyWarning || '',
+              technicalRecommendation: d.technicalRecommendation || '',
+              generatedAt: d.generatedAt || '',
+              source: d.source || 'gemini_ai',
+            });
+          });
+          alerts.sort((a, b) => b.generatedAt.localeCompare(a.generatedAt));
+          callback(alerts);
+        },
+        (error) => {
+          console.warn('Erro na escuta em tempo real de weather_alerts:', error);
+        }
+      );
+    } catch (err) {
+      console.warn('Falha ao iniciar escuta em tempo real de weather_alerts:', err);
+      return () => {};
+    }
   },
 
   // Save single roof report to Firestore

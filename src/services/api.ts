@@ -268,6 +268,8 @@ async function handleClientFallback<T>(url: string, options: RequestInit = {}): 
 
       const updatedReports = [newReport, ...reports];
       saveLocalReports(updatedReports);
+      // Persist to Firestore cloud directly
+      firestoreSync.saveRoofReport(newReport).catch((err) => console.warn('Erro ao salvar relatório no Firestore:', err));
 
       // Add to calendar if rain occurred
       if (ehChuvaMaior5mm) {
@@ -291,6 +293,7 @@ async function handleClientFallback<T>(url: string, options: RequestInit = {}): 
         };
         const updatedTasks = [newTask, ...tasks];
         saveLocalTasks(updatedTasks);
+        firestoreSync.saveCalendarTask(newTask).catch((err) => console.warn('Erro ao salvar tarefa de chuva no Firestore:', err));
       }
 
       const summary = computeRoofSummary(updatedReports, getLocalTasks());
@@ -352,6 +355,7 @@ async function handleClientFallback<T>(url: string, options: RequestInit = {}): 
       };
       const updated = [newTask, ...tasks];
       saveLocalTasks(updated);
+      firestoreSync.saveCalendarTask(newTask).catch((err) => console.warn('Erro ao salvar tarefa no Firestore:', err));
 
       const reports = getLocalReports();
       const scheduleInfo = computeProjectSchedule(reports, updated);
@@ -383,6 +387,9 @@ async function handleClientFallback<T>(url: string, options: RequestInit = {}): 
       return t;
     });
     saveLocalTasks(updatedTasks);
+    if (updatedTask) {
+      firestoreSync.saveCalendarTask(updatedTask).catch((err) => console.warn('Erro ao atualizar tarefa no Firestore:', err));
+    }
     return {
       message: 'Status atualizado com sucesso',
       task: updatedTask || tasks[0],
@@ -395,6 +402,7 @@ async function handleClientFallback<T>(url: string, options: RequestInit = {}): 
     const taskId = parts[parts.length - 1];
     const tasks = getLocalTasks();
     saveLocalTasks(tasks.filter((t) => t.id !== taskId));
+    firestoreSync.deleteCalendarTask(taskId).catch((err) => console.warn('Erro ao excluir tarefa no Firestore:', err));
     return { message: 'Tarefa removida com sucesso' } as unknown as T;
   }
 
@@ -428,6 +436,7 @@ async function handleClientFallback<T>(url: string, options: RequestInit = {}): 
 
     const updatedTasks = [newTask, ...tasks];
     saveLocalTasks(updatedTasks);
+    firestoreSync.saveCalendarTask(newTask).catch((err) => console.warn('Erro ao salvar registro de chuva no Firestore:', err));
 
     const scheduleInfo = computeProjectSchedule(reports, updatedTasks);
     return {
@@ -855,7 +864,16 @@ export const api = {
 
   // Roof Tile Inspection Service (Public & Operational)
   async getRoofSummary(): Promise<RoofProjectSummary> {
-    return request<RoofProjectSummary>('/api/telhas/summary');
+    try {
+      return await request<RoofProjectSummary>('/api/telhas/summary');
+    } catch {
+      const reports = await this.getRoofReports();
+      const tasks = await this.getCalendarTasks();
+      return computeRoofSummary(
+        reports.length > 0 ? reports : INITIAL_ROOF_REPORTS,
+        tasks.length > 0 ? tasks : INITIAL_CALENDAR_TASKS
+      );
+    }
   },
 
   async getRoofReports(): Promise<RoofDailyReport[]> {
@@ -890,27 +908,112 @@ export const api = {
     whatsappUrl?: string;
     gainedExtraDay?: boolean;
   }> {
-    const res = await request<{
-      message: string;
-      report: RoofDailyReport;
-      summary: RoofProjectSummary;
-      scheduleInfo?: ProjectScheduleInfo;
-      whatsappMessage?: string;
-      dailyWhatsappMessage?: string;
-      targetPhone?: string;
-      targetPhoneFormatted?: string;
-      whatsappUrl?: string;
-      gainedExtraDay?: boolean;
-    }>('/api/telhas/reports', {
-      method: 'POST',
-      body: JSON.stringify(report),
-    });
-    if (res.report) {
-      await firestoreSync.saveRoofReport(res.report).catch((e) => {
-        console.warn('Erro ao salvar relatório no Firestore:', e);
+    try {
+      const res = await request<{
+        message: string;
+        report: RoofDailyReport;
+        summary: RoofProjectSummary;
+        scheduleInfo?: ProjectScheduleInfo;
+        whatsappMessage?: string;
+        dailyWhatsappMessage?: string;
+        targetPhone?: string;
+        targetPhoneFormatted?: string;
+        whatsappUrl?: string;
+        gainedExtraDay?: boolean;
+      }>('/api/telhas/reports', {
+        method: 'POST',
+        body: JSON.stringify(report),
       });
+      if (res.report) {
+        await firestoreSync.saveRoofReport(res.report).catch((e) => {
+          console.warn('Erro ao salvar relatório no Firestore:', e);
+        });
+      }
+      return res;
+    } catch (err) {
+      console.warn('Servidor local/backend indisponível (ex: deploy Vercel). Gravando diretamente no Firebase Firestore:', err);
+      const newId = Date.now();
+      const volChuva = Number(report.nivelChuvaMm) || 0;
+      const isRainOver5 = volChuva > 5;
+      const completeReport: RoofDailyReport = {
+        id: newId,
+        dataPreenchimento: report.dataPreenchimento || new Date().toISOString().split('T')[0],
+        setorPredio: report.setorPredio || 'Prédio 4i1',
+        responsavel: report.responsavel || 'Sávio Rodrigues de Souza',
+        equipeFuncionarios: report.equipeFuncionarios || 'Vanderlei Encarregado & Equipe SVA',
+        tiposServico: report.tiposServico || ['Linha de vida', 'Telha Translúcida', 'Telha de Fibrocimento'],
+        qtdTranslúcidas: Number(report.qtdTranslúcidas) || 0,
+        qtdFibrocimento: Number(report.qtdFibrocimento) || 0,
+        metragemCalhas: Number(report.metragemCalhas) || 0,
+        metragemLinhaVida: Number(report.metragemLinhaVida) || 0,
+        metragem: Number(report.metragem) || 0,
+        nivelChuvaMm: volChuva,
+        chuvaMaior5mm: isRainOver5,
+        ganhouDiaAdicional: isRainOver5,
+        statusGeral: report.statusGeral || 'Em andamento',
+        descricaoExecucao: report.descricaoExecucao || '',
+        condicoesClimaticas: report.condicoesClimaticas || 'Ensolarado / Favorável',
+        periodosAfetadosClima: report.periodosAfetadosClima || 'Sem paralisação',
+        houveEntregaMateriais: report.houveEntregaMateriais || 'Não',
+        materiaisRecebidos: report.materiaisRecebidos || '',
+        equipamentosEmUso: report.equipamentosEmUso || [],
+        condicaoEquipamentos: report.condicaoEquipamentos || 'Todos operacionais',
+        registroOcorrencias: report.registroOcorrencias || 'Nenhuma ocorrência',
+        descricaoOcorrencia: report.descricaoOcorrencia || null,
+        criadoEm: new Date().toISOString(),
+      };
+
+      await firestoreSync.saveRoofReport(completeReport);
+
+      if (isRainOver5) {
+        const rainTask: CalendarTask = {
+          id: `cal-rain-${Date.now()}`,
+          title: `🌧️ Coleta de Chuva: ${volChuva}mm (> 5mm: +1 dia de prazo concedido)`,
+          category: 'chuva',
+          date: completeReport.dataPreenchimento,
+          startTime: '08:00',
+          endTime: '17:00',
+          responsible: 'Equipe SANY',
+          status: 'concluida',
+          priority: 'alta',
+          isRain: true,
+          rained: true,
+          rainVolumeMm: volChuva,
+          rainPeriod: 'dia_inteiro',
+          paralyzedWork: true,
+          addedDayToDeadline: true,
+        };
+        await firestoreSync.saveCalendarTask(rainTask).catch(() => {});
+      }
+
+      const allReports = await firestoreSync.getAllRoofReports();
+      const allTasks = await firestoreSync.getAllCalendarTasks();
+      const summary = computeRoofSummary(
+        allReports.length ? allReports : [completeReport],
+        allTasks.length ? allTasks : INITIAL_CALENDAR_TASKS
+      );
+      const scheduleInfo = computeProjectSchedule(
+        allReports.length ? allReports : [completeReport],
+        allTasks.length ? allTasks : INITIAL_CALENDAR_TASKS
+      );
+
+      const targetPhone = '5512996707590';
+      const targetPhoneFormatted = '(12) 99670-7590';
+      const msg = `*RELATÓRIO DIÁRIO DE COBERTURA • SANY ENGENHARIA*\nData: ${completeReport.dataPreenchimento}\nTelhas Translúcidas: +${completeReport.qtdTranslúcidas}\nTelhas Fibrocimento: +${completeReport.qtdFibrocimento}\nChuva: ${volChuva}mm ${isRainOver5 ? '(> 5mm: +1 dia contratual)' : ''}\nStatus: ${completeReport.statusGeral}`;
+
+      return {
+        message: 'Relatório salvo com sucesso diretamente no Firebase Firestore!',
+        report: completeReport,
+        summary,
+        scheduleInfo,
+        whatsappMessage: msg,
+        dailyWhatsappMessage: msg,
+        targetPhone,
+        targetPhoneFormatted,
+        whatsappUrl: `https://wa.me/${targetPhone}?text=${encodeURIComponent(msg)}`,
+        gainedExtraDay: isRainOver5,
+      };
     }
-    return res;
   },
 
   // Operational Calendar (Day / Week / Month)
@@ -949,49 +1052,105 @@ export const api = {
     scheduleInfo?: ProjectScheduleInfo;
     whatsappMessage?: string;
   }> {
-    const res = await request<{
-      message: string;
-      task: CalendarTask;
-      scheduleInfo?: ProjectScheduleInfo;
-      whatsappMessage?: string;
-    }>('/api/calendar/tasks', {
-      method: 'POST',
-      body: JSON.stringify(task),
-    });
-    if (res.task) {
-      await firestoreSync.saveCalendarTask(res.task).catch((e) => {
-        console.warn('Erro ao salvar tarefa no Firestore:', e);
+    try {
+      const res = await request<{
+        message: string;
+        task: CalendarTask;
+        scheduleInfo?: ProjectScheduleInfo;
+        whatsappMessage?: string;
+      }>('/api/calendar/tasks', {
+        method: 'POST',
+        body: JSON.stringify(task),
       });
+      if (res.task) {
+        await firestoreSync.saveCalendarTask(res.task).catch((e) => {
+          console.warn('Erro ao salvar tarefa no Firestore:', e);
+        });
+      }
+      return res;
+    } catch (err) {
+      console.warn('Servidor local indisponível, gravando tarefa diretamente no Firebase Firestore:', err);
+      const newTask: CalendarTask = {
+        id: task.id || `cal-${Date.now()}`,
+        title: task.title || 'Nova Tarefa Operacional',
+        date: task.date || new Date().toISOString().split('T')[0],
+        startTime: task.startTime || '08:00',
+        endTime: task.endTime || '17:00',
+        category: task.category || 'translúcida',
+        status: task.status || 'programada',
+        priority: task.priority || 'media',
+        responsible: task.responsible || 'Equipe SANY',
+        notes: task.notes || '',
+        isCompleted: Boolean(task.isCompleted),
+        isRain: Boolean(task.isRain || task.category === 'chuva'),
+        rained: Boolean(task.rained),
+        rainVolumeMm: Number(task.rainVolumeMm) || 0,
+        rainPeriod: (task.rainPeriod as any) || undefined,
+        paralyzedWork: Boolean(task.paralyzedWork),
+        addedDayToDeadline: Boolean(task.addedDayToDeadline || (Number(task.rainVolumeMm) || 0) > 5),
+      };
+
+      await firestoreSync.saveCalendarTask(newTask);
+      const allReports = await firestoreSync.getAllRoofReports();
+      const allTasks = await firestoreSync.getAllCalendarTasks();
+      const scheduleInfo = computeProjectSchedule(allReports, allTasks);
+
+      return {
+        message: 'Tarefa registrada com sucesso no Firebase Firestore!',
+        task: newTask,
+        scheduleInfo,
+      };
     }
-    return res;
   },
 
   async toggleCalendarTask(id: string): Promise<{
     message: string;
     task: CalendarTask;
   }> {
-    const res = await request<{
-      message: string;
-      task: CalendarTask;
-    }>(`/api/calendar/tasks/${id}/toggle`, {
-      method: 'PATCH',
-    });
-    if (res.task) {
-      await firestoreSync.saveCalendarTask(res.task).catch((e) => {
-        console.warn('Erro ao atualizar tarefa no Firestore:', e);
+    try {
+      const res = await request<{
+        message: string;
+        task: CalendarTask;
+      }>(`/api/calendar/tasks/${id}/toggle`, {
+        method: 'PATCH',
       });
+      if (res.task) {
+        await firestoreSync.saveCalendarTask(res.task).catch((e) => {
+          console.warn('Erro ao atualizar tarefa no Firestore:', e);
+        });
+      }
+      return res;
+    } catch (err) {
+      console.warn('Servidor indisponível, alternando tarefa no Firebase Firestore:', err);
+      const allTasks = await firestoreSync.getAllCalendarTasks();
+      const existing = allTasks.find((t) => t.id === id);
+      if (existing) {
+        existing.isCompleted = !existing.isCompleted;
+        existing.status = existing.isCompleted ? 'concluida' : 'em_andamento';
+        await firestoreSync.saveCalendarTask(existing);
+        return {
+          message: `Tarefa ${existing.isCompleted ? 'concluída' : 'reaberta'} no Firebase Firestore!`,
+          task: existing,
+        };
+      }
+      throw err;
     }
-    return res;
   },
 
   async deleteCalendarTask(id: string): Promise<{ message: string }> {
-    const res = await request<{ message: string }>(`/api/calendar/tasks/${id}`, {
-      method: 'DELETE',
-    });
-    await firestoreSync.deleteCalendarTask(id).catch((e) => {
-      console.warn('Erro ao deletar tarefa no Firestore:', e);
-    });
-    return res;
+    try {
+      const res = await request<{ message: string }>(`/api/calendar/tasks/${id}`, {
+        method: 'DELETE',
+      });
+      await firestoreSync.deleteCalendarTask(id).catch((e) => {
+        console.warn('Erro ao deletar tarefa no Firestore:', e);
+      });
+      return res;
+    } catch (err) {
+      console.warn('Servidor indisponível, deletando tarefa no Firebase Firestore:', err);
+      await firestoreSync.deleteCalendarTask(id);
+      return { message: 'Tarefa removida do Firebase com sucesso!' };
+    }
   },
 
   async quickRainLog(data: {
@@ -1008,22 +1167,61 @@ export const api = {
     whatsappMessage?: string;
     gainedExtraDay?: boolean;
   }> {
-    const res = await request<{
-      message: string;
-      task: CalendarTask;
-      scheduleInfo?: ProjectScheduleInfo;
-      whatsappMessage?: string;
-      gainedExtraDay?: boolean;
-    }>('/api/calendar/quick-rain', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
-    if (res.task) {
-      await firestoreSync.saveCalendarTask(res.task).catch((e) => {
-        console.warn('Erro ao salvar registro de chuva no Firestore:', e);
+    try {
+      const res = await request<{
+        message: string;
+        task: CalendarTask;
+        scheduleInfo?: ProjectScheduleInfo;
+        whatsappMessage?: string;
+        gainedExtraDay?: boolean;
+      }>('/api/calendar/quick-rain', {
+        method: 'POST',
+        body: JSON.stringify(data),
       });
+      if (res.task) {
+        await firestoreSync.saveCalendarTask(res.task).catch((e) => {
+          console.warn('Erro ao salvar registro de chuva no Firestore:', e);
+        });
+      }
+      return res;
+    } catch (err) {
+      console.warn('Servidor indisponível, salvando registro de chuva diretamente no Firebase Firestore:', err);
+      const vol = Number(data.rainVolumeMm) || 0;
+      const isRainOver5 = vol > 5;
+      const rainTask: CalendarTask = {
+        id: `cal-rain-${Date.now()}`,
+        title: `🌧️ Coleta de Chuva: ${vol}mm ${isRainOver5 ? '(> 5mm: +1 dia de prazo concedido)' : ''}`,
+        category: 'chuva',
+        date: data.date,
+        startTime: '08:00',
+        endTime: '17:00',
+        responsible: 'Sávio Rodrigues de Souza',
+        status: 'concluida',
+        priority: 'alta',
+        isRain: true,
+        rained: true,
+        rainVolumeMm: vol,
+        rainPeriod: data.rainPeriod || 'dia_inteiro',
+        paralyzedWork: data.paralyzedWork !== false,
+        addedDayToDeadline: isRainOver5,
+        notes: data.notes || '',
+      };
+
+      await firestoreSync.saveCalendarTask(rainTask);
+      const allReports = await firestoreSync.getAllRoofReports();
+      const allTasks = await firestoreSync.getAllCalendarTasks();
+      const scheduleInfo = computeProjectSchedule(allReports, allTasks);
+
+      const msg = `*COMUNICADO DE CLIMA & PRAZO • SANY ENGENHARIA*\nData: ${data.date}\nPrecipitação: ${vol}mm\n${isRainOver5 ? '🌧️ Volume superior a 5mm: Concedido +1 dia corrido ao prazo final.' : 'Trabalho monitorado.'}\nNovo Término Previsto: ${scheduleInfo.formattedCurrentEndDate}`;
+
+      return {
+        message: 'Registro de chuva salvo no Firebase com sucesso!',
+        task: rainTask,
+        scheduleInfo,
+        whatsappMessage: msg,
+        gainedExtraDay: isRainOver5,
+      };
     }
-    return res;
   },
 
   async getRainWhatsAppMessage(date?: string): Promise<{

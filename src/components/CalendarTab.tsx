@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { CalendarTask, ProjectScheduleInfo, RoofDailyReport, WeatherAlert } from '../types';
 import { api } from '../services/api';
+import { firestoreSync } from '../services/firestoreSync';
 import { computeProjectSchedule } from '../data/roofData';
 import { CurvaSChart } from './CurvaSChart';
 import {
@@ -260,6 +261,31 @@ export function CalendarTab() {
 
   useEffect(() => {
     loadTasks();
+
+    // Sincronização multi-dispositivo em tempo real com o Firebase Firestore
+    const unsubTasks = firestoreSync.subscribeToCalendarTasks((liveTasks) => {
+      if (liveTasks && liveTasks.length > 0) {
+        setTasks(liveTasks);
+      }
+    });
+
+    const unsubReports = firestoreSync.subscribeToRoofReports((liveReports) => {
+      if (liveReports && liveReports.length > 0) {
+        setRoofReports(liveReports);
+      }
+    });
+
+    const unsubAlerts = firestoreSync.subscribeToWeatherAlerts((liveAlerts) => {
+      if (liveAlerts && liveAlerts.length > 0) {
+        setWeatherAlerts(liveAlerts);
+      }
+    });
+
+    return () => {
+      unsubTasks();
+      unsubReports();
+      unsubAlerts();
+    };
   }, []);
 
   const handleToggleTask = async (id: string) => {
