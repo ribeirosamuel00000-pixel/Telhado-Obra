@@ -865,6 +865,21 @@ export const api = {
   // Roof Tile Inspection Service (Public & Operational)
   async getRoofSummary(): Promise<RoofProjectSummary> {
     try {
+      const [firestoreReports, firestoreTasks] = await Promise.all([
+        firestoreSync.getAllRoofReports(),
+        firestoreSync.getAllCalendarTasks(),
+      ]);
+      if (firestoreReports.length > 0) {
+        return computeRoofSummary(
+          firestoreReports,
+          firestoreTasks.length > 0 ? firestoreTasks : INITIAL_CALENDAR_TASKS,
+        );
+      }
+    } catch (firestoreError) {
+      console.warn('Firestore indisponível para o resumo; tentando fonte de compatibilidade:', firestoreError);
+    }
+
+    try {
       return await request<RoofProjectSummary>('/api/telhas/summary');
     } catch {
       const reports = await this.getRoofReports();
