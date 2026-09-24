@@ -30,7 +30,10 @@ export const Header: React.FC<HeaderProps> = ({ activeTab, projectData, onOpenAI
         {/* Left: Brand & Construction Context */}
         <div className="flex items-center gap-3 min-w-0">
           <div className="h-10 px-2.5 py-1 bg-white rounded-xl shadow-xs border border-slate-200 flex items-center shrink-0">
-            <span className="font-extrabold text-xl tracking-tight text-[#d71920]">SANY</span>
+            <div className="flex flex-col leading-none">
+              <span className="font-extrabold text-xl tracking-tight text-[#d71920]">ROOF REPAIR</span>
+              <span className="text-[8px] font-bold tracking-[0.18em] text-slate-500">SANY TURNKEY</span>
+            </div>
           </div>
 
           <div className="flex flex-col min-w-0">
