@@ -859,7 +859,23 @@ export const api = {
   },
 
   async getRoofReports(): Promise<RoofDailyReport[]> {
-    return request<RoofDailyReport[]>('/api/telhas/reports');
+    try {
+      const serverReports = await request<RoofDailyReport[]>('/api/telhas/reports');
+      try {
+        const firestoreReports = await firestoreSync.getAllRoofReports();
+        if (firestoreReports && firestoreReports.length > 0) {
+          const map = new Map<number, RoofDailyReport>();
+          serverReports.forEach((r) => map.set(r.id, r));
+          firestoreReports.forEach((r) => map.set(r.id, r));
+          return Array.from(map.values()).sort((a, b) => b.id - a.id);
+        }
+      } catch (fsErr) {
+        console.warn('Leitura do Firestore ignorada, usando dados do servidor:', fsErr);
+      }
+      return serverReports;
+    } catch {
+      return firestoreSync.getAllRoofReports().catch(() => []);
+    }
   },
 
   async submitRoofReport(report: Partial<RoofDailyReport>): Promise<{
@@ -890,7 +906,9 @@ export const api = {
       body: JSON.stringify(report),
     });
     if (res.report) {
-      firestoreSync.saveRoofReport(res.report).catch(() => {});
+      await firestoreSync.saveRoofReport(res.report).catch((e) => {
+        console.warn('Erro ao salvar relatório no Firestore:', e);
+      });
     }
     return res;
   },
@@ -898,7 +916,31 @@ export const api = {
   // Operational Calendar (Day / Week / Month)
   async getCalendarTasks(date?: string): Promise<CalendarTask[]> {
     const url = date ? `/api/calendar/tasks?date=${encodeURIComponent(date)}` : '/api/calendar/tasks';
-    return request<CalendarTask[]>(url);
+    try {
+      const serverTasks = await request<CalendarTask[]>(url);
+      try {
+        const firestoreTasks = await firestoreSync.getAllCalendarTasks();
+        if (firestoreTasks && firestoreTasks.length > 0) {
+          const map = new Map<string, CalendarTask>();
+          serverTasks.forEach((t) => map.set(t.id, t));
+          firestoreTasks.forEach((t) => map.set(t.id, t));
+          const allMerged = Array.from(map.values());
+          if (date) {
+            return allMerged.filter((t) => t.date === date);
+          }
+          return allMerged;
+        }
+      } catch (fsErr) {
+        console.warn('Leitura de tarefas do Firestore ignorada:', fsErr);
+      }
+      return serverTasks;
+    } catch {
+      const fsTasks = await firestoreSync.getAllCalendarTasks().catch(() => []);
+      if (date) {
+        return fsTasks.filter((t) => t.date === date);
+      }
+      return fsTasks;
+    }
   },
 
   async createCalendarTask(task: Partial<CalendarTask>): Promise<{
@@ -917,7 +959,9 @@ export const api = {
       body: JSON.stringify(task),
     });
     if (res.task) {
-      firestoreSync.saveCalendarTask(res.task).catch(() => {});
+      await firestoreSync.saveCalendarTask(res.task).catch((e) => {
+        console.warn('Erro ao salvar tarefa no Firestore:', e);
+      });
     }
     return res;
   },
@@ -933,7 +977,9 @@ export const api = {
       method: 'PATCH',
     });
     if (res.task) {
-      firestoreSync.saveCalendarTask(res.task).catch(() => {});
+      await firestoreSync.saveCalendarTask(res.task).catch((e) => {
+        console.warn('Erro ao atualizar tarefa no Firestore:', e);
+      });
     }
     return res;
   },
@@ -942,7 +988,9 @@ export const api = {
     const res = await request<{ message: string }>(`/api/calendar/tasks/${id}`, {
       method: 'DELETE',
     });
-    firestoreSync.deleteCalendarTask(id).catch(() => {});
+    await firestoreSync.deleteCalendarTask(id).catch((e) => {
+      console.warn('Erro ao deletar tarefa no Firestore:', e);
+    });
     return res;
   },
 
@@ -971,7 +1019,9 @@ export const api = {
       body: JSON.stringify(data),
     });
     if (res.task) {
-      firestoreSync.saveCalendarTask(res.task).catch(() => {});
+      await firestoreSync.saveCalendarTask(res.task).catch((e) => {
+        console.warn('Erro ao salvar registro de chuva no Firestore:', e);
+      });
     }
     return res;
   },

@@ -205,7 +205,7 @@ export function PublicRoofControl({
         title: isRainExt
           ? '🌧️ Chuva > 5mm & Atualização Diária da Cobertura'
           : '📱 Atualização Diária de Cobertura • WhatsApp',
-        subtitle: `Assistente Samuel • Envio direto para SVA Engenharia (${targetPhoneFormatted})`,
+        subtitle: `Sistema Turnkey SANY • Envio direto para SVA Engenharia (${targetPhoneFormatted})`,
         targetPhone,
         targetPhoneFormatted,
         date: formData.dataPreenchimento,
@@ -217,9 +217,9 @@ export function PublicRoofControl({
       });
 
       if (isRainExt) {
-        setSuccessToast(`🌧️ Chuva de ${volChuva}mm registrada (> 5mm)! O prestador de serviço ganhou +1 dia no prazo final e a IA Samuel preparou o comunicado para o WhatsApp (${targetPhoneFormatted}).`);
+        setSuccessToast(`🌧️ Chuva de ${volChuva}mm registrada (> 5mm)! O prestador de serviço ganhou +1 dia no prazo final e o comunicado oficial foi preparado para o WhatsApp (${targetPhoneFormatted}).`);
       } else {
-        setSuccessToast(`Relatório salvo com sucesso! A IA Samuel preparou a atualização diária para envio no WhatsApp (${targetPhoneFormatted}).`);
+        setSuccessToast(`Relatório salvo com sucesso! Atualização diária oficial gerada para envio no WhatsApp (${targetPhoneFormatted}).`);
       }
       setTimeout(() => setSuccessToast(null), 7000);
 

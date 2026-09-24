@@ -1179,6 +1179,7 @@ app.post('/api/telhas/reports', (req, res) => {
   };
 
   roofReports.unshift(newReport);
+  persistRoofReportToFirestore(newReport);
 
   // If rain > 5mm, automatically reflect in calendar as an item in blue with +1 day extension
   if (chuvaMaior5mm) {
@@ -1190,8 +1191,9 @@ app.post('/api/telhas/reports', (req, res) => {
       existingRainTask.rainVolumeMm = Math.max(existingRainTask.rainVolumeMm || 0, nivelChuvaMm);
       existingRainTask.addedDayToDeadline = true;
       existingRainTask.title = `🌧️ Coleta de Chuva: ${nivelChuvaMm}mm (> 5mm: +1 dia de prazo concedido)`;
+      persistCalendarTaskToFirestore(existingRainTask);
     } else {
-      calendarTasks.push({
+      const rainTaskItem: CalendarTask = {
         id: `cal-rain-${Date.now()}`,
         title: `🌧️ Coleta de Chuva: ${nivelChuvaMm}mm (> 5mm: +1 dia de prazo concedido)`,
         category: 'chuva',
@@ -1209,7 +1211,9 @@ app.post('/api/telhas/reports', (req, res) => {
         rainPeriod: 'dia_inteiro',
         paralyzedWork: true,
         addedDayToDeadline: true,
-      });
+      };
+      calendarTasks.push(rainTaskItem);
+      persistCalendarTaskToFirestore(rainTaskItem);
     }
   }
 
@@ -1240,7 +1244,7 @@ app.post('/api/telhas/reports', (req, res) => {
       type: 'weather',
       title: `🌧️ Chuva > 5mm (${nivelChuvaMm}mm): +1 Dia Concedido`,
       badge: '+1 Dia Prazo Final',
-      description: `O fornecedor SVA Engenharia ganhou +1 dia no prazo final contratual. Nova data de término prorrogada para ${scheduleInfo.formattedCurrentEndDate}. IA Samuel formatou comunicado específico.`,
+      description: `O fornecedor SVA Engenharia ganhou +1 dia no prazo final contratual. Nova data de término prorrogada para ${scheduleInfo.formattedCurrentEndDate}. Sistema Turnkey SANY formatou comunicado específico.`,
       urgency: 'high',
       time: 'Agora',
     });
@@ -1249,7 +1253,7 @@ app.post('/api/telhas/reports', (req, res) => {
   return res.status(201).json({
     message: chuvaMaior5mm
       ? `Relatório salvo! Chuva de ${nivelChuvaMm}mm registrada (> 5mm): +1 dia adicionado ao prazo contratual da SVA Engenharia e atualização gerada para o WhatsApp (12) 99670-7590.`
-      : `Relatório diário de telhas registrado com sucesso! Atualização formatada pela IA Samuel pronta para envio no WhatsApp (12) 99670-7590.`,
+      : `Relatório diário de telhas registrado com sucesso! Atualização formatada pronta para envio no WhatsApp (12) 99670-7590.`,
     report: newReport,
     summary,
     scheduleInfo,
@@ -1319,6 +1323,7 @@ app.post('/api/calendar/tasks', (req, res) => {
   };
 
   calendarTasks.push(newTask);
+  persistCalendarTaskToFirestore(newTask);
 
   const scheduleInfo = computeProjectSchedule(roofReports, calendarTasks);
 
@@ -1357,6 +1362,8 @@ app.post('/api/calendar/quick-rain', (req, res) => {
     }
     if (notes) existing.notes = notes;
 
+    persistCalendarTaskToFirestore(existing);
+
     const scheduleInfo = computeProjectSchedule(roofReports, calendarTasks);
 
     return res.json({
@@ -1390,6 +1397,7 @@ app.post('/api/calendar/quick-rain', (req, res) => {
   };
 
   calendarTasks.push(rainTask);
+  persistCalendarTaskToFirestore(rainTask);
 
   const scheduleInfo = computeProjectSchedule(roofReports, calendarTasks);
 
@@ -1629,15 +1637,118 @@ app.get('/api/firebase/status', (req, res) => {
 });
 
 app.post('/api/firebase/sync-all', async (req, res) => {
+  let syncedReports = 0;
+  let syncedTasks = 0;
+  let syncedAlerts = 0;
+
+  try {
+    for (const r of roofReports) {
+      await persistRoofReportToFirestore(r);
+      syncedReports++;
+    }
+    for (const t of calendarTasks) {
+      await persistCalendarTaskToFirestore(t);
+      syncedTasks++;
+    }
+  } catch (err) {
+    console.warn('Erro ao sincronizar Firestore pelo backend:', err);
+  }
+
   return res.json({
     success: true,
-    syncedReports: roofReports.length,
-    syncedTasks: calendarTasks.length,
+    syncedReports,
+    syncedTasks,
     syncedAlerts: currentWeatherAlerts.length,
     timestamp: new Date().toISOString(),
-    message: `Base de dados do Firebase sincronizada com sucesso! ${roofReports.length} relatórios RDO e ${calendarTasks.length} tarefas de calendário ativos.`,
+    message: `Base de dados do Firebase sincronizada com sucesso! ${syncedReports} relatórios RDO e ${syncedTasks} tarefas de calendário ativos.`,
   });
 });
+
+// Helper: Persistência de Relatório de Cobertura no Firestore via REST
+async function persistRoofReportToFirestore(report: RoofDailyReport) {
+  try {
+    const firestoreDbId = 'ai-studio-sanyturnkeygesto-07b1d634-7f94-4597-a18a-2b9609af574f';
+    const projectId = 'gen-lang-client-0486469536';
+    const apiKey = 'AIzaSyBj8hp9-5dWo7rf4LBFHcMM5Hp3SNQ-1uQ';
+    const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/${firestoreDbId}/documents/roof_reports/rdo-${report.id}?key=${apiKey}`;
+
+    const body = {
+      fields: {
+        id: { stringValue: String(report.id) },
+        dataPreenchimento: { stringValue: report.dataPreenchimento || '' },
+        setorPredio: { stringValue: report.setorPredio || 'Prédio 4i1' },
+        responsavel: { stringValue: report.responsavel || 'SVA Montagem' },
+        equipeFuncionarios: { stringValue: report.equipeFuncionarios || '' },
+        qtdTranslúcidas: { integerValue: String(report.qtdTranslúcidas || 0) },
+        qtdFibrocimento: { integerValue: String(report.qtdFibrocimento || 0) },
+        metragemCalhas: { doubleValue: Number(report.metragemCalhas || 0) },
+        metragemLinhaVida: { doubleValue: Number(report.metragemLinhaVida || 0) },
+        metragem: { doubleValue: Number(report.metragem || 0) },
+        nivelChuvaMm: { doubleValue: Number(report.nivelChuvaMm || 0) },
+        chuvaMaior5mm: { booleanValue: Boolean(report.chuvaMaior5mm) },
+        ganhouDiaAdicional: { booleanValue: Boolean(report.ganhouDiaAdicional) },
+        statusGeral: { stringValue: report.statusGeral || 'Em andamento' },
+        descricaoExecucao: { stringValue: report.descricaoExecucao || '' },
+        condicoesClimaticas: { stringValue: report.condicoesClimaticas || '' },
+        periodosAfetadosClima: { stringValue: report.periodosAfetadosClima || '' },
+        houveEntregaMateriais: { stringValue: report.houveEntregaMateriais || '' },
+        materiaisRecebidos: { stringValue: report.materiaisRecebidos || '' },
+        condicaoEquipamentos: { stringValue: report.condicaoEquipamentos || '' },
+        registroOcorrencias: { stringValue: report.registroOcorrencias || '' },
+        criadoEm: { stringValue: report.criadoEm || new Date().toISOString() },
+        sincronizadoEm: { stringValue: new Date().toISOString() },
+      },
+    };
+
+    await fetch(url, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  } catch (err) {
+    console.warn('[DATABASE FIRESTORE] Aviso de sincronização RDO:', err);
+  }
+}
+
+// Helper: Persistência de Tarefa de Calendário no Firestore via REST
+async function persistCalendarTaskToFirestore(task: CalendarTask) {
+  try {
+    const firestoreDbId = 'ai-studio-sanyturnkeygesto-07b1d634-7f94-4597-a18a-2b9609af574f';
+    const projectId = 'gen-lang-client-0486469536';
+    const apiKey = 'AIzaSyBj8hp9-5dWo7rf4LBFHcMM5Hp3SNQ-1uQ';
+    const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/${firestoreDbId}/documents/calendar_tasks/${task.id}?key=${apiKey}`;
+
+    const body = {
+      fields: {
+        id: { stringValue: task.id },
+        title: { stringValue: task.title || '' },
+        date: { stringValue: task.date || '' },
+        startTime: { stringValue: task.startTime || '08:00' },
+        endTime: { stringValue: task.endTime || '17:00' },
+        category: { stringValue: task.category || 'geral' },
+        status: { stringValue: task.status || 'programada' },
+        priority: { stringValue: task.priority || 'media' },
+        responsible: { stringValue: task.responsible || 'Equipe SANY' },
+        notes: { stringValue: task.notes || '' },
+        isCompleted: { booleanValue: Boolean(task.isCompleted) },
+        isRain: { booleanValue: Boolean(task.isRain) },
+        rained: { booleanValue: Boolean(task.rained) },
+        rainVolumeMm: { doubleValue: Number(task.rainVolumeMm || 0) },
+        rainPeriod: { stringValue: task.rainPeriod || '' },
+        paralyzedWork: { booleanValue: Boolean(task.paralyzedWork) },
+        addedDayToDeadline: { booleanValue: Boolean(task.addedDayToDeadline) },
+      },
+    };
+
+    await fetch(url, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  } catch (err) {
+    console.warn('[DATABASE FIRESTORE] Aviso de sincronização Task:', err);
+  }
+}
 
 // Helper: Persistência de Disparos de WhatsApp na Base de Dados e Memória
 async function persistWhatsAppReminderToDatabase(reminder: WhatsAppReminderRecord) {
@@ -1816,6 +1927,8 @@ app.patch('/api/calendar/tasks/:id/toggle', (req, res) => {
 
   task.isCompleted = !task.isCompleted;
   task.status = task.isCompleted ? 'concluida' : 'em_andamento';
+
+  persistCalendarTaskToFirestore(task);
 
   return res.json({
     message: `Tarefa ${task.isCompleted ? 'marcada como concluída' : 'reaberta'}!`,

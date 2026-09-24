@@ -2018,7 +2018,7 @@ export function CalendarTab() {
                       </span>
                     </p>
                     <p className="text-[11px] text-blue-800">
-                      O prestador de serviço ganha +1 dia no calendário final. A <strong>IA Samuel</strong> estenderá a data final e emitirá comunicado WhatsApp.
+                      O prestador de serviço ganha +1 dia no calendário final. O <strong>Sistema Turnkey SANY</strong> estenderá a data final e emitirá comunicado WhatsApp.
                     </p>
                   </div>
                 </div>
