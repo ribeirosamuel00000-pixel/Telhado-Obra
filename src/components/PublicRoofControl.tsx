@@ -425,7 +425,7 @@ export function PublicRoofControl({
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <span className="text-[#d71920] font-black text-2xl tracking-tighter">
-              SANY
+              ROOF REPAIR
             </span>
             <div className="h-5 w-[1px] bg-slate-700 hidden sm:block" />
             <div>
