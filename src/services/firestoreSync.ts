@@ -9,7 +9,7 @@ import {
   limit,
   onSnapshot,
 } from 'firebase/firestore';
-import { db, handleFirestoreError, OperationType, testFirestoreConnection } from '../firebase';
+import { db, firebaseAuthReady, handleFirestoreError, OperationType, testFirestoreConnection } from '../firebase';
 import {
   RoofDailyReport,
   CalendarTask,
@@ -188,6 +188,7 @@ export const firestoreSync = {
     const path = 'roof_reports';
     const docId = `rdo-${report.id}`;
     try {
+      await firebaseAuthReady;
       await setDoc(
         doc(db, path, docId),
         {
@@ -229,6 +230,7 @@ export const firestoreSync = {
   async getAllRoofReports(): Promise<RoofDailyReport[]> {
     const path = 'roof_reports';
     try {
+      await firebaseAuthReady;
       const snapshot = await getDocs(collection(db, path));
       if (snapshot.empty) return [];
 
@@ -276,6 +278,7 @@ export const firestoreSync = {
     const path = 'calendar_tasks';
     const docId = task.id;
     try {
+      await firebaseAuthReady;
       await setDoc(
         doc(db, path, docId),
         {
@@ -310,6 +313,7 @@ export const firestoreSync = {
   async getAllCalendarTasks(): Promise<CalendarTask[]> {
     const path = 'calendar_tasks';
     try {
+      await firebaseAuthReady;
       const snapshot = await getDocs(collection(db, path));
       if (snapshot.empty) return [];
 
@@ -389,6 +393,7 @@ export const firestoreSync = {
   async getWeatherAlerts(): Promise<WeatherAlert[]> {
     const path = 'weather_alerts';
     try {
+      await firebaseAuthReady;
       const snapshot = await getDocs(collection(db, path));
       if (snapshot.empty) return [];
 

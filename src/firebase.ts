@@ -1,5 +1,5 @@
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getAuth } from 'firebase/auth';
+import { getAuth, signInAnonymously } from 'firebase/auth';
 import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
 import firebaseConfigJson from '../firebase-applet-config.json';
 
@@ -25,6 +25,16 @@ export const app = getApps().length > 0 ? getApp() : initializeApp(resolvedFireb
 // CRITICAL: Must provide firestoreDatabaseId
 export const db = getFirestore(app, resolvedFirebaseConfig.firestoreDatabaseId);
 export const auth = getAuth(app);
+
+// Public field users do not need to create an account, but Firestore rules can
+// still require an authenticated principal. Anonymous Auth provides that
+// principal automatically and keeps the form usable across devices.
+export const firebaseAuthReady = signInAnonymously(auth)
+  .then(() => true)
+  .catch((error) => {
+    console.warn('Autenticação anônima do Firebase indisponível:', error);
+    return false;
+  });
 
 export enum OperationType {
   CREATE = 'create',
@@ -66,6 +76,7 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
 // Test connection on boot
 export async function testFirestoreConnection(): Promise<boolean> {
   try {
+    await firebaseAuthReady;
     await getDocFromServer(doc(db, 'test', 'connection'));
     return true;
   } catch (error) {
