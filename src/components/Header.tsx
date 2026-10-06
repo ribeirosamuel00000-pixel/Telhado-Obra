@@ -18,6 +18,7 @@ export const Header: React.FC<HeaderProps> = ({ activeTab, projectData, onOpenAI
     telhado: 'Controle de Telhas & Formulário',
     calendario: 'Calendário Operacional (Dia / Semana / Mês)',
     campo: 'Tabela de Campo - Histórico de Preenchimento',
+    pecas: 'Pesquisa de Peças & Ofertas',
   };
 
   const pendingApprovalsCount = projectData?.pendingActions?.filter(

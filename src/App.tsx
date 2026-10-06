@@ -10,6 +10,7 @@ import { PublicRoofControl } from './components/PublicRoofControl';
 import { CalendarTab } from './components/CalendarTab';
 import { AIAgentModal } from './components/AIAgentModal';
 import { ReportModal } from './components/ReportModal';
+import { PartsResearchTab } from './components/PartsResearchTab';
 import { ConstructionData } from './types';
 import { api } from './services/api';
 import { firestoreSync } from './services/firestoreSync';
@@ -23,13 +24,14 @@ import {
   AlertTriangle,
   Layers,
   Calendar,
+  Search,
   Eye,
   Lock,
 } from 'lucide-react';
 
 function MainApp() {
   const { isAuthenticated, isLoading: authLoading, user } = useAuth();
-  const [activeTab, setActiveTab] = useState<'telhado' | 'calendario' | 'campo'>('telhado');
+  const [activeTab, setActiveTab] = useState<'telhado' | 'calendario' | 'campo' | 'pecas'>('telhado');
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [projectData, setProjectData] = useState<ConstructionData | null>(null);
   const [dataLoading, setDataLoading] = useState(true);
@@ -145,6 +147,19 @@ function MainApp() {
               <ClipboardList className="w-4 h-4" />
               <span>Tabela de Campo</span>
             </button>
+
+            {/* 4. Pesquisa de peças */}
+            <button
+              onClick={() => setActiveTab('pecas')}
+              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold transition-all whitespace-nowrap cursor-pointer ${
+                activeTab === 'pecas'
+                  ? 'bg-[#d71920] text-white shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
+              }`}
+            >
+              <Search className="w-4 h-4" />
+              <span>Peças & Ofertas</span>
+            </button>
           </nav>
 
           <div className="flex items-center gap-2 self-end sm:self-auto">
@@ -179,6 +194,8 @@ function MainApp() {
             />
           </div>
         )}
+
+        {activeTab === 'pecas' && <PartsResearchTab />}
       </main>
 
       {/* AI Agent Modal (Accessible via specific admin actions if needed) */}
