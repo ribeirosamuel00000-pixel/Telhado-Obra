@@ -5,9 +5,9 @@ Adicionar ao sistema uma área chamada **Peças & Ofertas** para pesquisar uma p
 
 ## Abordagem de implementação
 - Criar `src/components/PartsResearchTab.tsx` como fluxo independente de busca e comparação.
-- Usar um catálogo local determinístico para a primeira versão demonstrável; os resultados serão identificados como demonstração para não inventar disponibilidade ou cupons.
-- Gerar links de busca externos com os parâmetros do veículo/peça e exibir a origem de cada anúncio.
-- Preparar a interface para uma futura integração com APIs oficiais de marketplaces, mantendo no produto o aviso de que cupons precisam ser confirmados na página de origem.
+- Consultar o endpoint oficial de busca do Mercado Livre no backend, usando `MERCADOLIVRE_ACCESS_TOKEN` quando configurado.
+- Em ausência de credencial ou bloqueio do provedor, retornar links de pesquisa reais em modo contingência, sem inventar preço, estoque, frete ou cupom.
+- Exibir até três ofertas retornadas pela fonte, com link original, preço confirmado, frete quando informado e aviso de validação de cupom no checkout.
 - Adicionar a aba ao `App.tsx` e o rótulo ao `Header.tsx`.
 - Manter a autenticação, as abas existentes e a identidade visual do projeto.
 

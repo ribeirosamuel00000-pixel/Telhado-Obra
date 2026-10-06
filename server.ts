@@ -23,6 +23,44 @@ const JWT_SECRET = process.env.JWT_SECRET || 'sany_turnkey_jwt_secret_2025_const
 
 app.use(express.json());
 
+app.get('/api/parts/search', async (req, res) => {
+  const { brand = '', model = '', year = '', engine = '', part = '' } = req.query as Record<string, string>;
+  const query = [brand, model, year, engine, part].filter(Boolean).join(' ').trim();
+  if (!query) return res.status(400).json({ error: 'Informe veículo e peça.' });
+
+  const encoded = encodeURIComponent(query);
+  const externalSearchLinks = [
+    { label: 'Mercado Livre', url: `https://lista.mercadolivre.com.br/${query.toLowerCase().replace(/[^a-z0-9]+/gi, '-')}` },
+    { label: 'Google Shopping', url: `https://www.google.com/search?tbm=shop&q=${encoded}` },
+    { label: 'Busca geral', url: `https://www.google.com/search?q=${encoded}` },
+  ];
+  const token = process.env.MERCADOLIVRE_ACCESS_TOKEN;
+  if (!token) {
+    return res.json({ source: 'links externos (credencial não configurada)', couponNote: 'Nenhum cupom confirmado', offers: [], externalSearchLinks });
+  }
+
+  try {
+    const response = await fetch(`https://api.mercadolibre.com/sites/MLB/search?q=${encoded}&limit=3`, {
+      headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+    });
+    if (!response.ok) throw new Error(`Mercado Livre respondeu ${response.status}`);
+    const data = await response.json() as { results?: any[] };
+    const offers = (data.results || []).slice(0, 3).map((item: any) => ({
+      id: String(item.id), store: 'Mercado Livre', title: item.title || 'Oferta sem título',
+      condition: item.condition === 'new' ? 'Novo' : item.condition || 'Condição não informada',
+      price: typeof item.price === 'number' ? item.price : null,
+      oldPrice: typeof item.original_price === 'number' ? item.original_price : null,
+      shipping: item.shipping?.free === true ? 0 : null,
+      highlight: item.shipping?.free === true ? 'Frete grátis informado pela fonte' : 'Frete calculado no checkout',
+      coupon: null, link: item.permalink || externalSearchLinks[0].url,
+    }));
+    return res.json({ source: 'Mercado Livre (API oficial)', couponNote: 'Cupom não exposto pela API — confirmar no checkout', offers, externalSearchLinks });
+  } catch (error) {
+    console.warn('Falha na busca do Mercado Livre:', error);
+    return res.json({ source: 'links externos (Mercado Livre indisponível)', couponNote: 'Nenhum cupom confirmado', offers: [], externalSearchLinks });
+  }
+});
+
 // Initialize Google Gemini AI (server-side only)
 let aiClient: GoogleGenAI | null = null;
 if (process.env.GEMINI_API_KEY) {

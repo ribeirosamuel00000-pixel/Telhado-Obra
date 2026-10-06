@@ -24,6 +24,26 @@ const LOCAL_TASKS_KEY = 'sany_turnkey_calendar_tasks_v3';
 const LOCAL_REMINDERS_KEY = 'sany_turnkey_whatsapp_reminders_v3';
 const LOCAL_ACTIONS_KEY = 'sany_turnkey_ai_actions_v3';
 
+export type PartsSearchOffer = {
+  id: string;
+  store: string;
+  title: string;
+  condition: string;
+  price: number | null;
+  oldPrice?: number | null;
+  shipping: number | null;
+  highlight: string;
+  coupon: string | null;
+  link: string;
+};
+
+export type PartsSearchResponse = {
+  source: string;
+  couponNote: string;
+  offers: PartsSearchOffer[];
+  externalSearchLinks: { label: string; url: string }[];
+};
+
 export function getStoredToken(): string | null {
   return localStorage.getItem(TOKEN_KEY);
 }
@@ -220,6 +240,22 @@ async function handleClientFallback<T>(url: string, options: RequestInit = {}): 
       token,
       user: DEFAULT_DEVELOPER_USER,
       message: 'Autenticado com sucesso como Desenvolvedor & Gestor SANY',
+    } as unknown as T;
+  }
+
+  if (cleanUrl === '/api/parts/search') {
+    const params = new URLSearchParams(url.split('?')[1] || '');
+    const query = [params.get('brand'), params.get('model'), params.get('year'), params.get('engine'), params.get('part')].filter(Boolean).join(' ');
+    const encoded = encodeURIComponent(query);
+    return {
+      source: 'links externos (modo contingência)',
+      couponNote: 'Nenhum cupom confirmado',
+      offers: [],
+      externalSearchLinks: [
+        { label: 'Mercado Livre', url: `https://lista.mercadolivre.com.br/${query.toLowerCase().replace(/[^a-z0-9]+/gi, '-')}` },
+        { label: 'Google Shopping', url: `https://www.google.com/search?tbm=shop&q=${encoded}` },
+        { label: 'Busca geral', url: `https://www.google.com/search?q=${encoded}` },
+      ],
     } as unknown as T;
   }
 
@@ -754,6 +790,11 @@ async function request<T>(url: string, options: RequestInit = {}): Promise<T> {
 }
 
 export const api = {
+  async searchParts(params: { brand: string; model: string; year: string; engine: string; part: string; location: string }): Promise<PartsSearchResponse> {
+    const query = new URLSearchParams(params).toString();
+    return request<PartsSearchResponse>(`/api/parts/search?${query}`);
+  },
+
   // Auth
   async login(email: string, password: string): Promise<{ token: string; user: User; message: string }> {
     const res = await request<{ token: string; user: User; message: string }>('/api/auth/login', {
